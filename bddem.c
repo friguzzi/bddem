@@ -12,6 +12,7 @@ for the relative license.
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include "mtr.h"
 #include "cudd.h"
 #include <SWI-Prolog.h>
 #include <unistd.h>
@@ -241,12 +242,18 @@ void printContext(context *c);
 double Prob_multival(DdNode *node, environment *env, tableRowCompl *table, context *c, int complement);
 void initContext(context *c);
 void freeContext(context *c);
+void printContext(context *c);
 
 void add_node_table_compl(tableRowCompl *tab, DdNode *node, double value, int comp);
 tableRowCompl *init_table_compl(int nBoolVars);
 double *get_compl_value(tableRowCompl *tab, DdNode *node, int comp);
 void destroy_table_compl(tableRowCompl *tab, int nBoolVars);
 double sumProbsUpToK(environment *env, int first, int k);
+double lastProb(environment *env, variable *multivalVar);
+// int differentGrounding();
+// int differentRule();
+double sumProbsUpToK(environment *env, int first, int k);
+
 
 static foreign_t uniform_sample_pl(term_t arg1)
 {
@@ -573,7 +580,8 @@ static foreign_t init(term_t arg1)
   // env->mgr=Cudd_Init(0,0,UNIQUE_SLOTS,CACHE_SLOTS,0);
   env->mgr=Cudd_Init(0,0,CUDD_UNIQUE_SLOTS,CACHE_SLOTS,0);
 
-  // Cudd_AutodynEnable(env->mgr, CUDD_REORDER_GROUP_SIFT);
+  // Cudd_AutodynEnable(env->mgr, CUDD_REORDER_GROUP_SIFT); // <-------------- REORDER
+  
   Cudd_SetMaxCacheHard(env->mgr, 0);
   Cudd_SetLooseUpTo(env->mgr, 0);
   Cudd_SetMinHit(env->mgr, 15);
@@ -715,7 +723,7 @@ static foreign_t ret_prob(term_t arg1, term_t arg2, term_t arg3) {
   RETURN_IF_FAIL
   out=PL_new_term_ref();
 
-  // dump_env(env); // <-------------------------------------------------------
+  // dump_env(env); 
 
   if (!Cudd_IsConstant(node)) {
     // table=init_table(env->boolVars);
@@ -1206,6 +1214,44 @@ void printContext(context *c) {
   printf("-----\n");
 }
 
+// check if in the context there is a variable that represents
+// the same head choice for the same rule but with different
+// grounding in the body. If so, returns 1.
+// int sameRule(environment *env, context *c, int index) {
+//   int i;
+
+//   // printf("in same rule\n");
+
+//   for(i = 0; i < c->nElements; i++) {
+//     // check is same position
+//     // printf("c->cont[%d] = %d\n",i, c->cont[i]);
+//     // printf("env->bVar2mVar[c->cont[%d]] = %d\n",i,env->bVar2mVar[c->cont[i]]);
+//     // printf("index = %d\n",index);
+//     // printf("env->bVar2mVar[index] = %d\n",env->bVar2mVar[index]);
+//     if(c->cont[i] < env->boolVars && env->bVar2mVar[c->cont[i]] < env->nVars) {
+//       if((c->cont[i] - env->vars[env->bVar2mVar[c->cont[i]]].firstBoolVar) == (index - env->vars[env->bVar2mVar[index]].firstBoolVar)) {
+//       // printf("same position\n");
+//       // check if same rule
+//       // printf("env->vars[env->bVar2mVar[c->cont[%d]]].nrule = %d\n",i,env->rules[env->bVar2mVar[c->cont[i]]]);
+//       // printf("env->vars[env->bVar2mVar[index]].nrule = %d\n",index);
+
+//         if(env->vars[env->bVar2mVar[c->cont[i]]].nRule == env->vars[env->bVar2mVar[index]].nRule) {
+//           // split in 2 for readability
+//           // printf("same rule\n");
+//           return 1;
+//         }
+//       }
+//     }
+//     else {
+//       printf("This should not happens\n");
+//       printf("c->cont[%d] = %d - env->boolVars = %d\n",i, c->cont[i],env->boolVars);
+//       printf("env->bVar2mVar[c->cont[%d]] = %d - env->nVars = %d\n",i, env->bVar2mVar[c->cont[i]], env->nVars);
+//     }
+//   }
+
+//   return 0;
+// }
+
 // computes the last probability, the one identified by all the
 // boolean vars, associated to a multival, set to negative
 double lastProb(environment *env, variable *multivalVar) {
@@ -1220,15 +1266,65 @@ double lastProb(environment *env, variable *multivalVar) {
   return 1 - prob;
 }
 
-// double sumProbsUpToK(environment *env, int first, int k) {
-//   int i;
-//   double sum = 0;
+double sumProbsUpToK(environment *env, int first, int k) {
+  int i;
+  double sum = 0;
 
-//   for(i = first; i <= k; i++) {
-//     sum = sum + env->probsMultival[i];
+  for(i = first; i <= k; i++) {
+    sum = sum + env->probsMultival[i];
+  }
+
+  return sum;
+}
+
+// returns the prob up to k with other than k negated
+// double prodProbsUpToK(environment *env, int first, int k) {
+//   int i;
+//   double prod = 1;
+
+//   for(i = first; i < k; i++) {
+//     prod = prod * (1 - env->probsMultival[i]);
 //   }
 
-//   return sum;
+//   prod = prod * env->probsMultival[k];
+
+//   return prod;
+// }
+
+// int isLast(DdNode *node) {
+//   if(!Cudd_IsConstant(node)) {
+//     printf("is last constant\n");
+//     if(Cudd_IsConstant(Cudd_E(node)) && Cudd_IsConstant(Cudd_T(node))) {
+//       return 1;
+//     }
+//   }
+//   return 0;
+// }
+
+// checks if currentIndex and childIndex represents different
+// grounding of the same rule
+// int differentGrounding(environment *env, int currentIndex, int childIndex) {
+//   if(env->bVar2mVar[currentIndex]) {
+//     if((currentIndex - env->vars[env->bVar2mVar[currentIndex]].firstBoolVar) == (childIndex - env->vars[env->bVar2mVar[childIndex]].firstBoolVar)) {
+//     // same grounding
+//       printf("same grounding\n");
+//       return 0;
+//     }
+//   }
+
+//   return 1;  
+// }
+
+// checks if currentIndex and childIndex represents different
+// rules
+// int differentRule(environment *env, int currentIndex, int childIndex) {
+//   int i;
+//   if(env->bVar2mVar[currentIndex] != env->bVar2mVar[childIndex]) {
+//     return 1;
+//   }
+//   else {
+//     return 0;
+//   }
 // }
 
 double Prob_multival(DdNode *node, environment *env, tableRowCompl *table, context *c, int complement) {
@@ -1236,7 +1332,7 @@ double Prob_multival(DdNode *node, environment *env, tableRowCompl *table, conte
   // double p,pt,pf,BChild0,BChild1;
   double * value_p;
   variable multivalVar;
-  int index, i, newComplement;
+  int index, childIndex, i, newComplement;
   // int found = 0;
   int stop = 0;
   DdNode *nodekey; // ,*T,*F;
@@ -1280,21 +1376,24 @@ double Prob_multival(DdNode *node, environment *env, tableRowCompl *table, conte
   initContext(&newContext1);
 
   index = Cudd_NodeReadIndex(node);
+  // do this because the index of a constant node does not exists
+  if(Cudd_IsConstant(Cudd_E(node))) {
+    childIndex = index;
+  }
+  else {
+    childIndex = Cudd_NodeReadIndex(Cudd_E(node));
+  }
+
+  // printf("index: %d - childIndex: %d\n",index,childIndex);
+
   multivalVar = env->vars[env->bVar2mVar[index]];
   // printf("index: %d - MultivarVal.nrule: %d\n",index,multivalVar.nRule);
   // printf("MultivarVal.nVal: %d - MultivarVal.fbv: %d\n",multivalVar.nVal,multivalVar.firstBoolVar);
-  
-  // cases
-  // 1: if multivalVar.nVal - 2 == index - multival with 2 vals or last variable
-  //    -> pTrue = prob, pFalse = 1 - prob
-  // 2: if all the variables up to k (current) are in the context then
-  //    -> pTrue = prob, pFalse = 1  
-
 
   // -----------------------------------------------------------------------v----- 1 o 2?
   if(multivalVar.nVal == 2 || multivalVar.nVal + multivalVar.firstBoolVar - 2 == index) {
     // printf("Last value identified\n");
-    // piTrue = env->probs[index]; //env->probs[index];
+    // piTrue = env->probs[index];
     piTrue = env->probsMultival[index];
     // piFalse = 1 - env->probs[index];
     piFalse = lastProb(env,&multivalVar);
@@ -1343,12 +1442,25 @@ double Prob_multival(DdNode *node, environment *env, tableRowCompl *table, conte
 
     // kth value identified or, if k = 0, context empty 
     if((stop == 0 || c->nElements == 0)) { // || (c->nElements == 0 && Cudd_IsConstant(Cudd_T(node)) && Cudd_IsConstant(Cudd_E(node)) )) {
-      // printf("kth value identified\n");
+      // printf("kth value identified - %lf\n",env->probsMultival[index]);
       // piTrue = env->probs[index];
-      // piTrue = sumProbsUpToK(env,multivalVar.firstBoolVar,index);
-      piTrue = env->probsMultival[index];// env->probs[index];
+      // piTrue = prodProbsUpToK(env, multivalVar.firstBoolVar, index);
+
+      piTrue = env->probsMultival[index];
+      
+      // if(different rule || different grounding)
+      // (env->vars[env->bVar2mVar[index]].nrule != env->vars[env->bVar2mVar[childIndex]].nrule) 
+      // if ( (env->bVar2mVar[index] != env->bVar2mVar[childIndex]) || differentGrounding(env,index,childIndex) ) {
+      if ( (env->bVar2mVar[index] != env->bVar2mVar[childIndex]) || ( childIndex < multivalVar.firstBoolVar && childIndex > (multivalVar.firstBoolVar + multivalVar.nVal - 2))) {
+        piFalse = 1 - sumProbsUpToK(env, multivalVar.firstBoolVar, index);
+      }
+      else {
+        piFalse = 1;  
+      }
+
+      // piTrue = env->probsMultival[index];// env->probs[index];
       // printf("multivalVar.firstBoolVar = %d ,index = %d sumProbsUpToK = %lf",multivalVar.firstBoolVar,index,piTrue);
-      piFalse = 1;
+      // piFalse = 1;
       // printf("piTrue: %lf piFalse(1): %lf\n",piTrue,piFalse);
 
       for(i = 0; i < c->nElements; i++) {
@@ -1380,6 +1492,7 @@ double Prob_multival(DdNode *node, environment *env, tableRowCompl *table, conte
       freeContext(&newContext1);
 
       // if (Cudd_IsComplement(Cudd_E(node))) {
+      //   printf("comple\n");
       //   p0 = 1.0 - p0;
       // }
 
@@ -1393,11 +1506,8 @@ double Prob_multival(DdNode *node, environment *env, tableRowCompl *table, conte
     }
   }
 
-  
-  // printf("p1: %lf, probPi: %lf, p0: %lf, probPi1: %lf\n",p1,probPi,p0,probPi1);
-  // res = p1*probPi + p0*probPi1;
-  // printf("p1: %lf, piTrue: %lf, p0: %lf, piFalse: %lf\n",p1,piTrue,p0,piFalse);
   res = p1*piTrue + p0*piFalse;
+  // printf("res: %lf, p1: %lf, piTrue: %lf, p0: %lf, piFalse: %lf\n",res,p1,piTrue,p0,piFalse);
 
   // printf("res: %lf\n",res);
   add_node_table_compl(table,nodekey,res,newComplement);
@@ -1777,6 +1887,8 @@ static foreign_t add_var(term_t arg1,term_t arg2,term_t arg3,term_t arg4)
   }
   env->boolVars=env->boolVars+v->nVal-1;
   env->rules[v->nRule]= v->nVal;
+
+  // Cudd_MakeTreeNode(env->mgr, 0, v->nVal - 1, MTR_FIXED);
 
   ret=PL_put_integer(out,env->nVars-1);
   RETURN_IF_FAIL
@@ -2743,6 +2855,9 @@ static foreign_t equality(term_t arg1,term_t arg2,term_t arg3, term_t arg4)
   tmp=Cudd_ReadOne(env->mgr);
   Cudd_Ref(tmp);
   node=NULL;
+  
+  // Cudd_MakeTreeNode(env->mgr, v.firstBoolVar, v.firstBoolVar + value - 1, MTR_FIXED);
+
   if (v.query)
   {
     var=Cudd_bddIthVar(env->mgr,v.firstBoolVar+value);
@@ -2766,6 +2881,9 @@ static foreign_t equality(term_t arg1,term_t arg2,term_t arg3, term_t arg4)
       Cudd_Ref(node);
       Cudd_RecursiveDeref(env->mgr,tmp);
     }
+
+    // Cudd_MakeTreeNode(env->mgr, v.firstBoolVar, v.firstBoolVar + value, MTR_FIXED);
+  
   }
   out=PL_new_term_ref();
   ret=PL_put_pointer(out,(void *)node);
@@ -3946,7 +4064,7 @@ void dump_env(environment *env) {
 
   printf("nRules: %d\n",env->nRules);
   for(i = 0; i < env->nRules; i++) {
-    printf("\trules[%d] = %d\n",i,env->bVar2mVar[i]);
+    printf("\trules[%d] = %d\n",i,env->rules[i]);
   }
 }
 
