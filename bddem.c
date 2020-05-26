@@ -580,8 +580,7 @@ static foreign_t init(term_t arg1)
   // env->mgr=Cudd_Init(0,0,UNIQUE_SLOTS,CACHE_SLOTS,0);
   env->mgr=Cudd_Init(0,0,CUDD_UNIQUE_SLOTS,CACHE_SLOTS,0);
 
-  // Cudd_AutodynEnable(env->mgr, CUDD_REORDER_GROUP_SIFT); // <-------------- REORDER
-  
+  Cudd_AutodynEnable(env->mgr, CUDD_REORDER_GROUP_SIFT); // <-------------- REORDER
   Cudd_SetMaxCacheHard(env->mgr, 0);
   Cudd_SetLooseUpTo(env->mgr, 0);
   Cudd_SetMinHit(env->mgr, 15);
@@ -1888,7 +1887,7 @@ static foreign_t add_var(term_t arg1,term_t arg2,term_t arg3,term_t arg4)
   env->boolVars=env->boolVars+v->nVal-1;
   env->rules[v->nRule]= v->nVal;
 
-  // Cudd_MakeTreeNode(env->mgr, 0, v->nVal - 1, MTR_FIXED);
+  Cudd_MakeTreeNode(env->mgr, 0, v->nVal - 1, MTR_DEFAULT);
 
   ret=PL_put_integer(out,env->nVars-1);
   RETURN_IF_FAIL
@@ -2882,7 +2881,7 @@ static foreign_t equality(term_t arg1,term_t arg2,term_t arg3, term_t arg4)
       Cudd_RecursiveDeref(env->mgr,tmp);
     }
 
-    // Cudd_MakeTreeNode(env->mgr, v.firstBoolVar, v.firstBoolVar + value, MTR_FIXED);
+    // Cudd_MakeTreeNode(env->mgr, v.firstBoolVar, v.firstBoolVar + value - 1, MTR_FIXED);
   
   }
   out=PL_new_term_ref();
