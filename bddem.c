@@ -107,9 +107,10 @@ typedef struct
 
 typedef struct
 {
+  int n_elements; // quanti elementi ci sono nella lista
   double prob;
-  assign *mpa;
-} prob_abd_expl_array;
+  explan_t **mpa; // lista di liste
+} prob_abd_expl_list;
 
 
 typedef struct
@@ -126,9 +127,22 @@ typedef struct
 
 typedef struct
 {
+  explkey key;
+  prob_abd_expl_list value;
+} explrowel_abd;
+
+typedef struct
+{
   int cnt;
   explrowel *row;
 } expltablerow;
+
+typedef struct
+{
+  int cnt;
+  explrowel_abd *row;
+} expltablerow_abd;
+
 
 // structure representing
 // the root of the add and
@@ -144,9 +158,7 @@ static foreign_t ret_map_prob(term_t,term_t,term_t,term_t);
 static foreign_t ret_vit_prob(term_t arg1, term_t arg2,
   term_t arg3, term_t arg4);
 double Prob(DdNode *node,environment *env,tablerow *table);
-prob_abd_expl abd_Prob(DdNode *node,environment *env,expltablerow *expltable,
-  tablerow *table,
-  int comp_par);
+// prob_abd_expl abd_Prob(DdNode *node,environment *env,expltablerow expltable, tablerow *table, int comp_par);
 prob_abd_expl map_Prob(DdNode *node, environment * env,
     expltablerow * maptable, tablerow * table,
     int comp_par);
@@ -239,6 +251,15 @@ void print_prob_abd_expl(prob_abd_expl *pae);
 void print_abd_explan(explan_t *et);
 int in_list(explan_t *list, assign element);
 explan_t *merge_explain(explan_t *a, explan_t *b);
+
+prob_abd_expl_list abd_Prob(DdNode *node, environment *env, expltablerow_abd *expltable, tablerow *table, int comp_par); 
+void print_prob_abd_expl_list(const prob_abd_expl_list *pael);
+void expl_destroy_table_abd(expltablerow_abd *tab,int varcnt);
+prob_abd_expl_list * expl_get_value_abd(expltablerow_abd *tab,  DdNode *node, int comp);
+expltablerow_abd *expl_init_table_abd(int varcnt);
+explan_t ** insert_abd(assign assignment,explan_t ** head, int n_elements);
+void expl_add_node_abd(expltablerow_abd *tab, DdNode *node, int comp, prob_abd_expl_list value);
+explan_t **split_explan(assign assignment, explan_t **head_true, explan_t **head_false, int n_true, int n_false, int *n_new_elements);
 
 static foreign_t uniform_sample_pl(term_t arg1)
 {
@@ -781,16 +802,17 @@ static foreign_t reorder(term_t arg1)
 static foreign_t ret_abd_prob(term_t arg1, term_t arg2,
   term_t arg3, term_t arg4)
 {
-  term_t out,outass;
+  term_t out,outass,out_assign;
   environment * env;
   DdNode * node;
-  expltablerow * expltable;
+  expltablerow_abd * expltable;
   tablerow * table;
   //abdtablerow * abdtable;
-  prob_abd_expl delta;
+  prob_abd_expl_list delta;
   int ret;
-  double p;
-  explan_t * mpa;
+  // double p;
+  // explan_t ** mpa;
+  int i;
   // assign *array_mpa;
 
 
@@ -807,19 +829,35 @@ static foreign_t ret_abd_prob(term_t arg1, term_t arg2,
 
   if (!Cudd_IsConstant(node))
   {
-    expltable=expl_init_table(env->boolVars);
+    expltable = expl_init_table_abd(env->boolVars);
     table=init_table(env->boolVars);
     //abdtable=init_abd_table(env->n_abd);
 
-    delta=abd_Prob(node,env,expltable,table,0);
-    p=delta.prob;
-    mpa=delta.mpa;
-    ret=PL_put_float(out,p);
+    delta.n_elements = 0;
+    delta.mpa = NULL;
+    delta.prob = -1;
+
+    delta = abd_Prob(node,env,expltable,table,0);
+    // p=delta.prob;
+    // mpa=delta.mpa;
+    ret = PL_put_float(out,delta.prob);
     RETURN_IF_FAIL
     //destroy_table(abdtable,env->n_abd);
-    outass=abd_clist_to_pllist(mpa);
+    printf("--- Fine algoritmo ---\n");
+    print_prob_abd_expl_list(&delta);
+    // exit(-1);
+
+    out_assign = PL_new_term_ref();
+    PL_put_nil(out_assign);
     RETURN_IF_FAIL
-    expl_destroy_table(expltable,env->boolVars);
+    for(i = 0; i < delta.n_elements; i++) {
+      outass=abd_clist_to_pllist(delta.mpa[i]);
+      
+      ret = PL_cons_list(out_assign,outass,out_assign);
+      RETURN_IF_FAIL
+    }
+
+    expl_destroy_table_abd(expltable,env->boolVars);
     destroy_table(table,env->boolVars);
   }
   else
@@ -834,12 +872,12 @@ static foreign_t ret_abd_prob(term_t arg1, term_t arg2,
       ret=PL_put_float(out,0.0);
       RETURN_IF_FAIL
     }
-      outass=PL_new_term_ref();
-      ret=PL_put_nil(outass);
+      out_assign=PL_new_term_ref();
+      ret=PL_put_nil(out_assign);
       RETURN_IF_FAIL
   }
 
-  return(PL_unify(out,arg3)&&PL_unify(outass,arg4));
+  return(PL_unify(out,arg3)&&PL_unify(out_assign,arg4));
 }
 
 static foreign_t ret_map_prob(term_t arg1, term_t arg2,
@@ -1204,20 +1242,18 @@ so that it is not recomputed
   }
 }
 
-prob_abd_expl abd_Prob(DdNode *node, environment * env,
-  expltablerow * expltable, tablerow * table,
-  int comp_par)
+prob_abd_expl_list abd_Prob(DdNode *node, environment * env, expltablerow_abd * expltable, tablerow * table, int comp_par)
 /* compute the probability of the expression rooted at node.
 table is used to store nodeB for which the probability has already been computed
 so that it is not recomputed
  */
 {
-  int index,comp,pos;
+  int index,comp,pos,n_new_elements = 0;
   double p0,p1;
   DdNode *nodekey,*T,*F;
-  prob_abd_expl deltat,deltaf,delta,*deltaptr;
+  prob_abd_expl_list deltat,deltaf,delta,*deltaptr;
   assign assignment;
-  explan_t * mpa0,* mpa1,* mpa;
+  explan_t ** mpa; //** mpa0,** mpa1;
   // explan_t *mptemp;
 
   comp = Cudd_IsComplement(node);
@@ -1227,7 +1263,9 @@ so that it is not recomputed
     if (comp)
       p1= 1.0-p1;
 
+    // aggiungo una nuova spiegazione
     delta.prob=p1;
+    delta.n_elements = 0;
     delta.mpa=NULL;
 
     return delta;
@@ -1241,6 +1279,7 @@ so that it is not recomputed
       p1= 1.0-p1;
 
     delta.prob=p1;
+    delta.n_elements = 0;
     delta.mpa=NULL;
 
     return delta;
@@ -1248,57 +1287,70 @@ so that it is not recomputed
   else
   {
     nodekey=Cudd_Regular(node);
-    deltaptr=expl_get_value(expltable,nodekey,comp);
+    deltaptr=expl_get_value_abd(expltable,nodekey,comp);
     if (deltaptr!=NULL)
     {
+      printf("found in table\n");
       return *deltaptr;
     }
-    else
-    {
+    else {
 
       T = Cudd_T(node);
       F = Cudd_E(node);
       deltaf=abd_Prob(F,env,expltable,table,comp);
       deltat=abd_Prob(T,env,expltable,table,comp);
-      // p=env->probs[index];
-
-      // if (p==1.0)
-      // {
-        p0=deltaf.prob;
-        p1=deltat.prob;
-      // }
-      // else
-      // {
-      //   p0=deltaf.prob;
-      //   p1=deltat.prob*p + deltaf.prob*(1-p);
-      // }
-
-      mpa0=deltaf.mpa;
-      mpa1=deltat.mpa;
 
       assignment.var=env->bVar2mVar[index];
-      if (p1>p0) {
+      if (deltat.prob > deltaf.prob) {
         assignment.val=1;
 
-        // if(p != 0 && p != 1) {
-          // mptemp = merge_explain(mpa0,mpa1);
-          // mpa = insert(assignment,mptemp);
-          // free(mptemp);
-          // all the list must be freed, todo
-        // }
-        // else {
-          mpa=insert(assignment,mpa1);
-        // }
-        delta.prob=p1;
+        printf("Prima di insert_abd true\n");
+        print_prob_abd_expl_list(&deltat);
+
+        mpa = insert_abd(assignment, deltat.mpa, deltat.n_elements);
+        delta.prob = deltat.prob;
+
+        printf("deltat.n_elements: %d\n",deltat.n_elements);
+
+        if(deltat.n_elements == 0) {
+          delta.n_elements = 1;
+        }
       }
       else
       {
-        assignment.val=0;
-        mpa=insert(assignment,mpa0);
-        delta.prob=p0;
+        if(deltat.prob == deltaf.prob) {
+          printf("p0 == p1 == %lf\n",p0);
+          printf("Prima di insert_abd true and false\ntrue\n");
+          print_prob_abd_expl_list(&deltat);
+          printf("false\n");
+          print_prob_abd_expl_list(&deltaf);
+          
+          
+          mpa = split_explan(assignment,deltat.mpa,deltaf.mpa,deltat.n_elements, deltaf.n_elements, &n_new_elements);
+          delta.n_elements = n_new_elements;
+        }
+        else {
+          printf("Prima di insert_abd false\n");
+          print_prob_abd_expl_list(&deltaf);
+          assignment.val=0;
+          mpa = insert_abd(assignment, deltaf.mpa, deltaf.n_elements);
+          if(deltaf.n_elements == 0) {
+            delta.n_elements = 1;
+          }
+        }
+        // in entrambi i casi metto p0, visto che p0 e p1 sono uguali
+        delta.prob = deltaf.prob;
       }
+      
+      printf("delta.n_elements: %d\n",delta.n_elements);
+      
       delta.mpa=mpa;
-      expl_add_node(expltable,nodekey,comp,delta);
+
+      
+      printf("delta dopo inserimento true: \n");
+      print_prob_abd_expl_list(&delta);
+      
+      expl_add_node_abd(expltable,nodekey,comp,delta);
       return delta;
     }
   }
@@ -1500,6 +1552,98 @@ explan_t *merge_explain(explan_t *a, explan_t *b) {
   }
 
   return root;
+}
+
+explan_t **split_explan(assign assignment, explan_t **head_true, explan_t **head_false, int n_true, int n_false, int *n_new_elements) {
+
+  explan_t **newhead;
+
+  int i;
+  int dim = 0;
+
+  if(n_true == 0) {
+    n_true++;
+  }
+  if(n_false == 0) {
+    n_false++;
+  }
+  dim = n_true + n_false;
+
+  newhead = malloc(sizeof(explan_t*) * dim);
+
+  // inserisco lato true
+  assignment.val = 1;
+  for(i = 0; i < n_true; i++) {
+    newhead[i] = malloc(sizeof(explan_t));
+    newhead[i]->a = assignment;
+    if(head_true != NULL) {
+      newhead[i]->next = duplicate(head_true[i]);
+    }
+    else {
+      newhead[i]->next = NULL;
+    }
+  }
+
+  assignment.val = 0;
+  for(i = 0; i < n_false; i++) {
+    newhead[n_true + i] = malloc(sizeof(explan_t));
+    newhead[n_true + i]->a = assignment;
+    if(head_false != NULL) {
+      newhead[n_true + i]->next = duplicate(head_false[i]);
+    }
+    else {
+      newhead[n_true + i]->next = NULL;
+    }
+  }
+
+  printf("dim: %d\n",dim);
+
+  *n_new_elements = dim;
+
+  return newhead;
+
+}
+
+explan_t **insert_abd(assign assignment, explan_t **head, int n_elements) {
+  int i;
+  explan_t **newhead;
+
+  printf("insert abd: n_elements: %d\n",n_elements);
+  printf("insert abd: print head: %s\n",head == NULL ? "NULL": "");
+
+  if(n_elements == 0) {
+    // provengo da un nodo terminale o da un nodo probabilistico
+    printf("N elements 0\n");
+    // n_elements = 1;
+  }
+
+  // n_elements++;
+
+
+  newhead = malloc(sizeof(explan_t*) * (n_elements + 1));
+  newhead[0] = malloc(sizeof(explan_t));
+  newhead[0]->a = assignment;
+
+  if(n_elements == 0) {
+    newhead[0]->next = NULL;
+  }
+  else {
+    for(i = 0; i < n_elements; i++) {
+      if(head != NULL && head[i] != NULL) {
+        newhead[i] = malloc(sizeof(explan_t));
+        newhead[i]->next = duplicate(head[i]);
+      }
+      else {
+        newhead[i]->next = NULL;
+      }
+    }
+  }
+
+  printf("newhead[0]->a.var = %d\n",newhead[0]->a.var);
+  printf("newhead[0]->a.val = %d\n",newhead[0]->a.val);
+  
+
+  return newhead;
 }
 
 explan_t * insert(assign assignment,explan_t * head)
@@ -3604,6 +3748,19 @@ void destroy_table(tablerow *tab,int varcnt)
   free(tab);
 }
 
+expltablerow_abd *expl_init_table_abd(int varcnt) {
+  int i;
+  expltablerow_abd *tab;
+
+  tab = malloc(sizeof(explrowel_abd) * varcnt);
+  for (i = 0; i < varcnt; i++)
+  {
+    tab[i].row = NULL;
+    tab[i].cnt = 0;
+  }
+  return tab;
+}
+
 expltablerow* expl_init_table(int varcnt) {
   int i;
   expltablerow *tab;
@@ -3617,6 +3774,15 @@ expltablerow* expl_init_table(int varcnt) {
   return tab;
 }
 
+void expl_add_node_abd(expltablerow_abd *tab, DdNode *node, int comp, prob_abd_expl_list value) {
+  int index = Cudd_NodeReadIndex(node);
+
+  tab[index].row = (explrowel_abd *) realloc(tab[index].row,(tab[index].cnt + 1) * sizeof(explrowel_abd));
+  tab[index].row[tab[index].cnt].key.node = node;
+  tab[index].row[tab[index].cnt].key.comp = comp;
+  tab[index].row[tab[index].cnt].value = value;
+  tab[index].cnt += 1;
+}
 
 void expl_add_node(expltablerow *tab, DdNode *node, int comp, prob_abd_expl value) {
   int index = Cudd_NodeReadIndex(node);
@@ -3642,6 +3808,22 @@ DdNode* get_node(DdNode *node, tablerow *tab) {
   return NULL;
 }
 
+// uguale a qeulla senza abd, cambia solo il tipo di dato
+prob_abd_expl_list * expl_get_value_abd(expltablerow_abd *tab,  DdNode *node, int comp) {
+  int i;
+  int index = Cudd_NodeReadIndex(node);
+
+  for(i = 0; i < tab[index].cnt; i++)
+  {
+    if (tab[index].row[i].key.node == node &&
+       tab[index].row[i].key.comp == comp)
+    {
+      return &tab[index].row[i].value;
+    }
+  }
+  return NULL;
+}
+
 prob_abd_expl * expl_get_value(expltablerow *tab,  DdNode *node, int comp) {
   int i;
   int index = Cudd_NodeReadIndex(node);
@@ -3655,6 +3837,21 @@ prob_abd_expl * expl_get_value(expltablerow *tab,  DdNode *node, int comp) {
     }
   }
   return NULL;
+}
+
+void expl_destroy_table_abd(expltablerow_abd *tab,int varcnt) {
+  int i,j,k;
+
+  for (i = 0; i < varcnt; i++) {
+    for (j = 0; j< tab[i].cnt; j++) {
+      for(k = 0; k < tab[i].row[j].value.n_elements; k++) {
+        free_list(tab[i].row[j].value.mpa[k]);
+      }
+      free(tab[i].row[j].value.mpa);
+    }
+    free(tab[i].row);
+  }
+  free(tab);
 }
 
 void expl_destroy_table(expltablerow *tab,int varcnt)
@@ -3679,6 +3876,21 @@ void print_abd_explan(explan_t *et) {
   while(current_explan != NULL) {
     printf("assign var: %d\nassign val: %d\n",current_explan->a.var,current_explan->a.val);
     current_explan = current_explan->next;
+  }
+}
+
+void print_prob_abd_expl_list(const prob_abd_expl_list *pael) {
+  int i;
+  printf("--- print_prob_abd_expl_list --- \nprob: %lf\nn_explan: %d\nExplans:\n",pael->prob, pael->n_elements);
+  if(pael->mpa == NULL) {
+    printf("mpa NULL\n");
+  }
+  if(pael->mpa == NULL && pael->n_elements != 0) {
+    printf("ERRORE: mpa null ed elementi != 0\n");
+  }
+  for(i = 0; i < pael->n_elements; i++) {
+    printf("--- Explan %d ---\n",i);
+    print_abd_explan(pael->mpa[i]); 
   }
 }
 
