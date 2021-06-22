@@ -153,7 +153,7 @@ typedef struct {
 } node_impact;
 
 static foreign_t ret_prob(term_t,term_t,term_t);
-static foreign_t ret_abd_prob(term_t,term_t,term_t,term_t);
+static foreign_t ret_abd_prob(term_t,term_t,term_t,term_t,term_t);
 static foreign_t ret_map_prob(term_t,term_t,term_t,term_t);
 static foreign_t ret_vit_prob(term_t arg1, term_t arg2,
   term_t arg3, term_t arg4);
@@ -799,27 +799,95 @@ static foreign_t reorder(term_t arg1)
   return 1;
 }
 
-static foreign_t ret_abd_prob(term_t arg1, term_t arg2,
-  term_t arg3, term_t arg4)
+double Prob_given_expl(DdNode *node, environment *env, tablerow *table, explan_t *expl, int comp_par)
+{
+  int index, comp, pos;
+  double p, pf, pt, res;
+  double * value_p;
+  explan_t *exp = expl; // copia perché scorro 
+  comp = Cudd_IsComplement(node);
+  comp = (comp && !comp_par) ||(!comp && comp_par);
+  if(Cudd_IsConstant(node)) {
+    p = 1;
+    if (comp)
+      p = 1.0 - 1;
+
+    return p;
+  }
+  index = Cudd_NodeReadIndex(node);
+  pos = Cudd_ReadPerm(env->mgr,index);
+  if (pos >= env->n_abd_boolVars)
+  {
+    p = Prob(node,env,table);
+    if (comp)
+      p = 1.0 - p;
+
+    return p;
+  }
+  
+  value_p = get_value(table,Cudd_Regular(node));
+  if (value_p != NULL) {
+    return *value_p;
+  }
+
+  p = env->probs[index];
+  printf("cerco indice: %d\n",index);
+  while(exp != NULL && exp->a.var != index) {
+    exp = exp->next;
+  }
+
+  pt = 1;
+  pf = 1;
+  if(exp != NULL) {
+    if(exp->a.val == 1) {
+      pt = Prob_given_expl(Cudd_T(node),env,table,expl,comp);
+      pf = 0;
+      printf("selected true: pt %lf\n",pt);
+    }
+    else if(exp->a.val == 0) {
+      pf = Prob_given_expl(Cudd_E(node),env,table,expl,comp);
+      // if(Cudd_IsComplement(Cudd_E(node))) {
+        // pf = 1 - pf;
+      // }
+      pt = 0;
+      printf("selected false pf: %lf\n",pf);
+    }
+  }
+  else {
+    printf("Ass not found - ERRORE\n");
+  }
+  
+
+  res = pf*(1-p) + pt*p;
+  printf("res: %lf\n",res);
+  add_node(table,Cudd_Regular(node),res);
+
+  return res;
+}
+
+static foreign_t ret_abd_prob(term_t arg_env, term_t arg_bdd, term_t arg_bdd_ic, term_t arg_prob, term_t arg_expl)
 {
   term_t out,outass,out_assign;
   environment * env;
-  DdNode * node;
+  DdNode * node, *node_ic;
   expltablerow_abd * expltable;
   tablerow * table;
   //abdtablerow * abdtable;
   prob_abd_expl_list delta;
+  double *prob_ics = NULL;
   int ret;
   // double p;
   // explan_t ** mpa;
   int i;
   // assign *array_mpa;
 
+  ret=PL_get_pointer(arg_env,(void **)&env);
+  RETURN_IF_FAIL
+  ret=PL_get_pointer(arg_bdd,(void **)&node);
+  RETURN_IF_FAIL
+  ret=PL_get_pointer(arg_bdd_ic,(void **)&node_ic);
+  RETURN_IF_FAIL
 
-  ret=PL_get_pointer(arg1,(void **)&env);
-  RETURN_IF_FAIL
-  ret=PL_get_pointer(arg2,(void **)&node);
-  RETURN_IF_FAIL
   out=PL_new_term_ref();
 
   ret=reorder_int(env);
@@ -831,7 +899,6 @@ static foreign_t ret_abd_prob(term_t arg1, term_t arg2,
   {
     expltable = expl_init_table_abd(env->boolVars);
     table=init_table(env->boolVars);
-    //abdtable=init_abd_table(env->n_abd);
 
     delta.n_elements = 0;
     delta.mpa = NULL;
@@ -840,12 +907,41 @@ static foreign_t ret_abd_prob(term_t arg1, term_t arg2,
     delta = abd_Prob(node,env,expltable,table,0);
     // p=delta.prob;
     // mpa=delta.mpa;
-    ret = PL_put_float(out,delta.prob);
-    RETURN_IF_FAIL
-    //destroy_table(abdtable,env->n_abd);
     printf("--- Fine algoritmo ---\n");
     print_prob_abd_expl_list(&delta);
     // exit(-1);
+
+    
+    // qui controllo la prob dell'ic
+    printf("**************\n");
+    if(delta.prob != 0) {
+      destroy_table(table,env->boolVars);
+      table = NULL;
+      table = init_table(env->boolVars);
+    
+      prob_ics = malloc(sizeof(double) * delta.n_elements);
+      for(i = 0; i < delta.n_elements; i++) {
+        prob_ics[i] = Prob_given_expl(node_ic,env,table,delta.mpa[i],0);
+        // if (Cudd_IsComplement(node_ic)) {
+          // prob_ics[i] = 1.0 - prob_ics[i];
+        // }
+        printf("Prob ic: %lf\n",prob_ics[i]);
+      }
+    }
+
+    // in teoria non dovrebbe accadere che le prob dei vari IC siano differenti
+    if(prob_ics[0] != 0) {
+      delta.prob = delta.prob / prob_ics[0];
+    }
+    // PL_fail;
+    if(prob_ics != NULL) {
+      free(prob_ics);
+    }
+    
+
+    ret = PL_put_float(out,delta.prob);
+    RETURN_IF_FAIL
+    //destroy_table(abdtable,env->n_abd);
 
     out_assign = PL_new_term_ref();
     PL_put_nil(out_assign);
@@ -877,7 +973,7 @@ static foreign_t ret_abd_prob(term_t arg1, term_t arg2,
       RETURN_IF_FAIL
   }
 
-  return(PL_unify(out,arg3)&&PL_unify(out_assign,arg4));
+  return(PL_unify(out,arg_prob)&&PL_unify(out_assign,arg_expl));
 }
 
 static foreign_t ret_map_prob(term_t arg1, term_t arg2,
@@ -4009,7 +4105,7 @@ install_t install()
   PL_register_foreign("init",1,init,0);
   PL_register_foreign("end",1,end,0);
   PL_register_foreign("ret_prob",3,ret_prob,0);
-  PL_register_foreign("ret_abd_prob",4,ret_abd_prob,0);
+  PL_register_foreign("ret_abd_prob",5,ret_abd_prob,0);
   PL_register_foreign("ret_map_prob",4,ret_map_prob,0);
   PL_register_foreign("ret_vit_prob",4,ret_vit_prob,0);
   PL_register_foreign("reorder",1,reorder,0);
