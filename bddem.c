@@ -1315,6 +1315,9 @@ so that it is not recomputed
         if(deltat.n_elements == 0) {
           delta.n_elements = 1;
         }
+        else {
+          delta.n_elements = deltat.n_elements;
+        }
       }
       else
       {
@@ -1337,6 +1340,9 @@ so that it is not recomputed
           if(deltaf.n_elements == 0) {
             delta.n_elements = 1;
           }
+          else {
+            delta.n_elements = deltaf.n_elements;
+          }
         }
         // in entrambi i casi metto p0, visto che p0 e p1 sono uguali
         delta.prob = deltaf.prob;
@@ -1347,7 +1353,7 @@ so that it is not recomputed
       delta.mpa=mpa;
 
       
-      printf("delta dopo inserimento true: \n");
+      printf("delta dopo inserimento: \n");
       print_prob_abd_expl_list(&delta);
       
       expl_add_node_abd(expltable,nodekey,comp,delta);
@@ -1570,6 +1576,7 @@ explan_t **split_explan(assign assignment, explan_t **head_true, explan_t **head
   dim = n_true + n_false;
 
   newhead = malloc(sizeof(explan_t*) * dim);
+  // non va bene
 
   // inserisco lato true
   assignment.val = 1;
@@ -1608,8 +1615,16 @@ explan_t **insert_abd(assign assignment, explan_t **head, int n_elements) {
   int i;
   explan_t **newhead;
 
+  printf("insrisco: var - val = %d - %d\n",assignment.var,assignment.val);  
+
   printf("insert abd: n_elements: %d\n",n_elements);
   printf("insert abd: print head: %s\n",head == NULL ? "NULL": "");
+  for(i = 0; i < n_elements; i++) {
+    printf("--- Explan %d ---\n",i);
+    print_abd_explan(head[i]); 
+  }
+
+  printf("----\n");
 
   if(n_elements == 0) {
     // provengo da un nodo terminale o da un nodo probabilistico
@@ -1618,29 +1633,30 @@ explan_t **insert_abd(assign assignment, explan_t **head, int n_elements) {
   }
 
   // n_elements++;
-
-
-  newhead = malloc(sizeof(explan_t*) * (n_elements + 1));
-  newhead[0] = malloc(sizeof(explan_t));
-  newhead[0]->a = assignment;
-
+  // qui è l'errore?
+  newhead = malloc(sizeof(explan_t*) * (n_elements == 0 ? 1 : n_elements));
+  
   if(n_elements == 0) {
+    newhead[0] = malloc(sizeof(explan_t));
+    newhead[0]->a = assignment;
     newhead[0]->next = NULL;
   }
   else {
     for(i = 0; i < n_elements; i++) {
+      newhead[i] = malloc(sizeof(explan_t));
+      newhead[i]->a = assignment;
       if(head != NULL && head[i] != NULL) {
-        newhead[i] = malloc(sizeof(explan_t));
         newhead[i]->next = duplicate(head[i]);
       }
       else {
         newhead[i]->next = NULL;
       }
+      printf("newhead[%d]->a.var = %d\n",i,newhead[i]->a.var);
+      printf("newhead[%d]->a.val = %d\n",i,newhead[i]->a.val);
     }
   }
 
-  printf("newhead[0]->a.var = %d\n",newhead[0]->a.var);
-  printf("newhead[0]->a.val = %d\n",newhead[0]->a.val);
+  
   
 
   return newhead;
