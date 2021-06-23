@@ -919,13 +919,23 @@ static foreign_t ret_abd_prob(term_t arg_env, term_t arg_bdd, term_t arg_bdd_ic,
       table = NULL;
       table = init_table(env->boolVars);
     
-      prob_ics = malloc(sizeof(double) * delta.n_elements);
-      for(i = 0; i < delta.n_elements; i++) {
-        prob_ics[i] = Prob_given_expl(node_ic,env,table,delta.mpa[i],0);
-        // if (Cudd_IsComplement(node_ic)) {
-          // prob_ics[i] = 1.0 - prob_ics[i];
-        // }
-        printf("Prob ic: %lf\n",prob_ics[i]);
+      prob_ics = malloc(sizeof(double) * delta.n_elements == 0 ? 1 : delta.n_elements);
+
+      if(delta.n_elements == 0) {
+        prob_ics[0] = Prob(node_ic,env,table);
+        if (Cudd_IsComplement(node_ic)) {
+          prob_ics[0] = 1.0 - prob_ics[0];
+        }
+        printf("Prob ic delta vuoto: %lf\n",prob_ics[0]);
+      }
+      else {
+        for(i = 0; i < delta.n_elements; i++) {
+          prob_ics[i] = Prob_given_expl(node_ic,env,table,delta.mpa[i],0);
+          // if (Cudd_IsComplement(node_ic)) {
+            // prob_ics[i] = 1.0 - prob_ics[i];
+          // }
+          printf("Prob ic: %lf\n",prob_ics[i]);
+        }
       }
     }
 
