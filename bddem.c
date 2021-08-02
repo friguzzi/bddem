@@ -95,7 +95,7 @@ typedef struct
 
 typedef struct explan
 {
-  assign a;
+  assign a; // for abduction, an int is sufficient, since there are only 1 in a->val
   struct explan * next;
 } explan_t;
 
@@ -153,7 +153,7 @@ typedef struct {
 } node_impact;
 
 static foreign_t ret_prob(term_t,term_t,term_t);
-static foreign_t ret_abd_prob(term_t,term_t,term_t,term_t,term_t);
+static foreign_t ret_abd_prob(term_t,term_t,term_t,term_t);
 static foreign_t ret_map_prob(term_t,term_t,term_t,term_t);
 static foreign_t ret_vit_prob(term_t arg1, term_t arg2,
   term_t arg3, term_t arg4);
@@ -260,6 +260,11 @@ expltablerow_abd *expl_init_table_abd(int varcnt);
 explan_t ** insert_abd(assign assignment,explan_t ** head, int n_elements);
 void expl_add_node_abd(expltablerow_abd *tab, DdNode *node, int comp, prob_abd_expl_list value);
 explan_t **split_explan(assign assignment, explan_t **head_true, explan_t **head_false, int n_true, int n_false, int *n_new_elements,  int no_false);
+
+explan_t *insord_abd(assign assignment, explan_t *head);
+explan_t **insert_abd_ordered(assign assignment, explan_t **head, int n_elements);
+explan_t **split_explan_v2(assign assignment, explan_t **head_true, explan_t **head_false, int *n_true, int *n_false, int *n_new_elements);
+int is_subset(explan_t *e01, explan_t *e02);
 
 static foreign_t uniform_sample_pl(term_t arg1)
 {
@@ -807,12 +812,12 @@ double Prob_given_expl(DdNode *node, environment *env, tablerow *table, explan_t
   explan_t *exp = expl; // copia perché scorro 
   comp = Cudd_IsComplement(node);
   comp = (comp && !comp_par) ||(!comp && comp_par);
-  printf("Comp: %d\n",comp);
+  // printf("Comp: %d\n",comp);
   if(Cudd_IsConstant(node)) {
     p = 1;
     // if (comp)
       // p = 1.0 - 1;
-    printf("Terminal: %lf\n",p);
+    // printf("Terminal: %lf\n",p);
 
     return p;
   }
@@ -824,7 +829,7 @@ double Prob_given_expl(DdNode *node, environment *env, tablerow *table, explan_t
     // if (comp)
     //   p = 1.0 - p;
 
-    printf("Computed prob: %lf\n",p);
+    // printf("Computed prob: %lf\n",p);
 
     return p;
   }
@@ -835,7 +840,7 @@ double Prob_given_expl(DdNode *node, environment *env, tablerow *table, explan_t
   }
 
   p = env->probs[index];
-  printf("cerco indice: %d che ha prob: %lf\n",index,p);
+  // printf("cerco indice: %d che ha prob: %lf\n",index,p);
   while(exp != NULL && exp->a.var != index) {
     exp = exp->next;
   }
@@ -844,12 +849,12 @@ double Prob_given_expl(DdNode *node, environment *env, tablerow *table, explan_t
   pf = 1;
   if(exp != NULL) {
     if(exp->a.val == 1) {
-      printf("selected true: pt %lf\n",pt);
+      // printf("selected true: pt %lf\n",pt);
       pt = Prob_given_expl(Cudd_T(node),env,table,expl,comp);
       pf = 0;
     }
     else {
-      printf("selected false pf: %lf\n",pf);
+      // printf("selected false pf: %lf\n",pf);
       pf = Prob_given_expl(Cudd_E(node),env,table,expl,comp);
       if(Cudd_IsComplement(Cudd_E(node))) {
         pf = 1 - pf;
@@ -858,18 +863,18 @@ double Prob_given_expl(DdNode *node, environment *env, tablerow *table, explan_t
     }
   }
   else {
-    printf("Ass not found - ERRORE\n");
+    // printf("Ass not found - ERRORE\n");
   }
   
-  printf("Indice: %d, p: %lf, pf: %lf, pt: %lf\n",index,p,pf,pt);
+  // printf("Indice: %d, p: %lf, pf: %lf, pt: %lf\n",index,p,pf,pt);
   res = pf*(1-p) + pt*p;
-  printf("res: %lf\n",res);
+  // printf("res: %lf\n",res);
   add_node(table,Cudd_Regular(node),res);
 
   return res;
 }
 
-static foreign_t ret_abd_prob(term_t arg_env, term_t arg_bdd, term_t arg_bdd_ic, term_t arg_prob, term_t arg_expl)
+static foreign_t ret_abd_prob(term_t arg_env, term_t arg_bdd, term_t arg_prob, term_t arg_expl)
 {
   term_t out,outass,out_assign;
   environment * env;
@@ -890,8 +895,8 @@ static foreign_t ret_abd_prob(term_t arg_env, term_t arg_bdd, term_t arg_bdd_ic,
   RETURN_IF_FAIL
   ret=PL_get_pointer(arg_bdd,(void **)&node);
   RETURN_IF_FAIL
-  ret=PL_get_pointer(arg_bdd_ic,(void **)&node_ic);
-  RETURN_IF_FAIL
+  // ret=PL_get_pointer(arg_bdd_ic,(void **)&node_ic);
+  // RETURN_IF_FAIL
 
   out=PL_new_term_ref();
 
@@ -910,14 +915,16 @@ static foreign_t ret_abd_prob(term_t arg_env, term_t arg_bdd, term_t arg_bdd_ic,
     delta.prob = -1;
 
     delta = abd_Prob(node,env,expltable,table,0);
+
+    /*
     // p=delta.prob;
     // mpa=delta.mpa;
-    printf("--- Fine algoritmo ---\n");
-    print_prob_abd_expl_list(&delta);
+    // printf("--- Fine algoritmo ---\n");
+    // print_prob_abd_expl_list(&delta);
     // exit(-1);
 
     // qui controllo la prob dell'ic
-    printf("**************\n");
+    // printf("**************\n");
     if(delta.prob != 0) {
       destroy_table(table,env->boolVars);
       table = NULL;
@@ -933,18 +940,25 @@ static foreign_t ret_abd_prob(term_t arg_env, term_t arg_bdd, term_t arg_bdd_ic,
           prob_ics = 1.0 - prob_ics;
         }
         // printf("Prob ic delta vuoto: %lf\n",prob_ics[0]);
-        printf("Prob ic delta vuoto: %lf\n",prob_ics);
+        // printf("Prob ic delta vuoto: %lf\n",prob_ics);
       }
       else {
         // for(i = 0; i < delta.n_elements; i++) {
-          // prob_ics[i] = Prob_given_expl(node_ic,env,table,delta.mpa[i],0);
+        //   // prob_ics[i] = Prob_given_expl(node_ic,env,table,delta.mpa[i],0);
+        //   prob_ics = Prob_given_expl(node_ic,env,table,delta.mpa[i],0);
+        //   if (Cudd_IsComplement(node_ic)) {
+        //     // prob_ics[i] = 1.0 - prob_ics[i];
+        //     prob_ics = 1.0 - prob_ics;
+        //   }
+        //   printf("Prob ic: %lf\n",prob_ics);
+        //   }
           prob_ics = Prob_given_expl(node_ic,env,table,delta.mpa[0],0);
           if (Cudd_IsComplement(node_ic)) {
             // prob_ics[i] = 1.0 - prob_ics[i];
             prob_ics = 1.0 - prob_ics;
           }
           // printf("Prob ic: %lf\n",prob_ics[i]);
-          printf("Prob ic: %lf\n",prob_ics);
+          // printf("Prob ic: %lf\n",prob_ics);
         // }
       }
     }
@@ -954,19 +968,20 @@ static foreign_t ret_abd_prob(term_t arg_env, term_t arg_bdd, term_t arg_bdd_ic,
     if(prob_ics != 0) {
       // if(delta.prob > prob_ics[0]) {
       if(delta.prob > prob_ics) {
-        printf("Error in computing probability IC\n");
+        // printf("Error in computing probability IC\n");
         // printf("Prob IC: %lf, Prob query: %lf, ratio > 1",delta.prob,prob_ics[0]);
-        printf("Prob IC: %lf, Prob query: %lf, ratio > 1",delta.prob,prob_ics);
+        // printf("Prob IC: %lf, Prob query: %lf, ratio > 1",delta.prob,prob_ics);
         PL_fail;
       }
       // delta.prob = delta.prob / prob_ics[0];
+      // printf("delta.prob: %lf\n",delta.prob);
       delta.prob = delta.prob / prob_ics;
     }
     // PL_fail;
     // if(prob_ics != NULL) {
       // free(prob_ics);
     // }
-    
+    */
 
     ret = PL_put_float(out,delta.prob);
     RETURN_IF_FAIL
@@ -982,7 +997,7 @@ static foreign_t ret_abd_prob(term_t arg_env, term_t arg_bdd, term_t arg_bdd_ic,
       RETURN_IF_FAIL
     }
 
-    expl_destroy_table_abd(expltable,env->boolVars);
+    // expl_destroy_table_abd(expltable,env->boolVars);
     destroy_table(table,env->boolVars);
   }
   else
@@ -1415,7 +1430,7 @@ so that it is not recomputed
     deltaptr=expl_get_value_abd(expltable,nodekey,comp);
     if (deltaptr!=NULL)
     {
-      printf("found in table\n");
+      // printf("found in table\n");
       return *deltaptr;
     }
     else {
@@ -1426,15 +1441,17 @@ so that it is not recomputed
       deltat=abd_Prob(T,env,expltable,table,comp);
 
       assignment.var=env->bVar2mVar[index];
+      // printf("variabile: %d\n",assignment.var);
       if (deltat.prob > deltaf.prob) {
         assignment.val=1;
-
+        // printf("T (%lf) > F (%lf) \n",deltat.prob, deltaf.prob);
+        // printf("inserisco: %d\n",assignment.var);
         // printf("Prima di insert_abd true\n");
         // print_prob_abd_expl_list(&deltat);
-        mpa = insert_abd(assignment, deltat.mpa, deltat.n_elements);
+        mpa = insert_abd_ordered(assignment, deltat.mpa, deltat.n_elements);
         delta.prob = deltat.prob;
 
-        printf("deltat.n_elements: %d\n",deltat.n_elements);
+        // printf("deltat.n_elements: %d\n",deltat.n_elements);
 
         if(deltat.n_elements == 0) {
           delta.n_elements = 1;
@@ -1445,51 +1462,34 @@ so that it is not recomputed
       }
       else
       {
-        // if((deltat.prob == deltaf.prob) && deltat.prob != 1.0) {
-        // se il ramo false ha prob 1, allora tutte le spiegazioni del ramo
-        // true possono essere inserite senza però inserire l'abducibile corrente
-        if(deltat.prob == 1 && deltaf.prob == 1 && Cudd_IsConstant(F)) {
-          // split_explan ma senza inserire il nodo nella spiegazione vera          
-          mpa = split_explan(assignment,deltat.mpa,deltaf.mpa,deltat.n_elements, deltaf.n_elements, &n_new_elements, 1);
-          delta.n_elements = n_new_elements;
-
-          // mpa = deltat.mpa;
-          // delta.n_elements = deltat.n_elements;
-        }
-        else if(deltat.prob == deltaf.prob) {
-          printf("p0 == p1 == %lf\n", deltaf.prob);
-          // printf("Prima di insert_abd true and false\ntrue\n");
+        if(deltat.prob == deltaf.prob) {
+          // printf("p0 == p1 == %lf\n", deltaf.prob);
+          // printf("Prima di insert_abd true and false\ndeltat\n");
           // print_prob_abd_expl_list(&deltat);
-          // printf("false\n");
+          // printf("deltaf\n");
           // print_prob_abd_expl_list(&deltaf);
           
           
-          mpa = split_explan(assignment,deltat.mpa,deltaf.mpa,deltat.n_elements, deltaf.n_elements, &n_new_elements,0);
+          mpa = split_explan_v2(assignment,deltat.mpa,deltaf.mpa,&deltat.n_elements,&deltaf.n_elements, &n_new_elements);
           delta.n_elements = n_new_elements;
         }
         else {
-          printf("Prima di insert_abd false\n");
-          print_prob_abd_expl_list(&deltaf);
-          assignment.val=0;
-          mpa = insert_abd(assignment, deltaf.mpa, deltaf.n_elements);
-          if(deltaf.n_elements == 0) {
-            delta.n_elements = 1;
-          }
-          else {
-            delta.n_elements = deltaf.n_elements;
-          }
+          // printf("Prima di insert_abd false\n");
+          // printf("ora non la inserisco\n");
+          mpa = deltaf.mpa;
+          delta.n_elements = deltaf.n_elements;
         }
         // in entrambi i casi metto p0, visto che p0 e p1 sono uguali
         delta.prob = deltaf.prob;
       }
       
-      printf("delta.n_elements: %d\n",delta.n_elements);
+      // printf("delta.n_elements: %d\n",delta.n_elements);
       
       delta.mpa=mpa;
 
       
-      printf("delta dopo inserimento: \n");
-      print_prob_abd_expl_list(&delta);
+      // printf("delta dopo inserimento: \n");
+      // print_prob_abd_expl_list(&delta);
       
       expl_add_node_abd(expltable,nodekey,comp,delta);
       return delta;
@@ -1738,7 +1738,7 @@ explan_t **split_explan(assign assignment, explan_t **head_true, explan_t **head
     }
   }
 
-  printf("dim: %d\n",dim);
+  // printf("dim: %d\n",dim);
 
   *n_new_elements = dim;
 
@@ -1746,29 +1746,196 @@ explan_t **split_explan(assign assignment, explan_t **head_true, explan_t **head
 
 }
 
+// returns 1 if e01 is subset of e02
+// e02 ha più elementi
+int is_subset(explan_t *e01, explan_t *e02) {
+  explan_t *e1, *e2;
+  int moved = 0;
+  e1 = e01;
+  e2 = e02;
+
+  if(e1 == NULL) {
+    return 1;
+  }
+  else if(e2 == NULL) {
+    return 0;
+  }
+  else {
+    while(e1 != NULL && e2 != NULL && e2->a.var < e1->a.var) {
+      // allineo gli insiemi
+      // printf("scorro\n");
+      e2 = e2->next;
+      moved++;
+    }
+    while(e1 != NULL && e2 != NULL && (e1->a.var == e2->a.var)) {
+      e1 = e1->next;
+      e2 = e2->next;
+    }
+    // if(e1 == NULL) {
+    if((e1 == NULL && e2 != NULL) || (e1 == NULL && e2 == NULL && moved != 0)) {
+      return 1;
+    }
+    else {
+      return 0;
+    }
+  }
+}
+
+// int is_equal(explan_t *e01, explan_t *e02) {
+//   explan_t *e1, *e2;
+//   e1 = e01;
+//   e2 = e02;
+
+//   if(e1 == NULL) {
+//     return 0;
+//   }
+//   else if(e2 == NULL) {
+//     return 0;
+//   }
+//   else {
+//     while(e1 != NULL && e2 != NULL && (e1->a.var == e2->a.var)) {
+//       e1 = e1->next;
+//       e2 = e2->next;
+//     }
+//     if(e1 == NULL && e2 != NULL) {
+//       return 1;
+//     }
+//     else {
+//       return 0;
+//     }
+//   }
+// }
+
+explan_t **split_explan_v2(assign assignment, explan_t **head_true, explan_t **head_false, int *n_true, int *n_false, int *n_new_elements) {
+  explan_t **newhead;
+
+  int i,ii,iii;
+  int dim = 0;
+  int pos = 0;
+  int removed = 0;
+
+  // controllo se uno dei due è vuoto: se sì, restituisco una sola
+  // spiegazione vuota
+  // nel caso di true no, perché devo inserire l'elemento 1
+  // if(*n_true == 0) {
+    // *n_new_elements = 0;
+    // return head_true;
+  // }
+  if(*n_false == 0) {
+    *n_new_elements = 0;
+    return head_false;
+  }
+  else {
+    // controllo insiemi dominati in true
+    // se gli insiemi sono uguali, allora non inserisco
+    // e restituisco false
+    // for(i = 0; i < *n_true; i++) {
+    //   for(ii = 0; ii < *n_false; ii++) {
+    //     if(is_equal(head_false[ii],head_true[i])) {
+    //       printf("rimuovo spiegazione %d da true\n",i);
+    //       for(iii = i; iii < *n_true - 1; iii++) {
+    //         head_true[iii] = head_true[iii + 1];
+    //       }
+    //       printf("rimuovo spiegazione %d da false\n",i);
+    //       for(iii = i; iii < *n_false - 1; iii++) {
+    //         head_false[iii] = head_false[iii + 1];
+    //       }
+
+    //       *n_true = *n_true - 1;
+    //       *n_false = *n_false - 1;
+    //     }
+    //   }
+    // }
+
+    for(i = 0; i < *n_true; i++) {
+      for(ii = 0; ii < *n_false; ii++) {
+        if(is_subset(head_false[ii],head_true[i])) {
+          // remove head_true[i]
+          // printf("rimuovo spiegazione %d da true\n",i);
+          removed++;
+          for(iii = i; iii < *n_true - 1; iii++) {
+            head_true[iii] = head_true[iii + 1];
+          }
+          // free(head_true[iii]);
+          *n_true = *n_true - 1;
+
+          // printf("ora ci sono %d elementi in true\n",*n_true);
+
+        }
+      }
+    }
+      // rimuovo insiemi dominati in false
+    // for(i = 0; i < *n_false; i++) {
+    //   for(ii = 0; ii < *n_true; ii++) {
+    //     if(is_subset(head_true[ii],head_false[i])) {
+    //       // remove head_true[i]
+    //       printf("rimuovo spiegazione %d da false\n",i);
+    //       for(iii = i; iii < *n_true - 1; iii++) {
+    //         head_false[iii] = head_false[iii + 1];
+    //       }
+    //       // free(head_true[iii]);
+    //       *n_false = *n_false - 1;
+
+    //       printf("ora ci sono %d elementi in false\n",*n_false);
+
+    //     }
+    //   }
+    // }
+
+    // come prima, aggiungo in nodo in true ed unisco gli insiemi false e true
+    assignment.val = 1;
+    dim = *n_true + *n_false;
+    if(*n_true == 0 && removed > 0) {
+      // dim++;
+      // printf("n_true vuoto dopo rimozione\n");
+      // restituisco il false
+      *n_new_elements = *n_false;
+      return head_false;
+    }
+    else if(*n_true == 0) {
+      dim++;
+    }
+    // if(*n_false == 0) {
+    //   dim++;
+    // }
+
+    newhead = malloc(sizeof(explan_t*) * (dim + 2)); // perché + 2?
+
+    // se true vuota inserisco
+    // printf("n_true ora: %d\n",*n_true);
+    if(*n_true == 0) {
+      // printf("Inserisco assegnamento in vuoto\n");
+      newhead[0] = insord_abd(assignment,NULL);
+      pos++;
+    }
+    else {
+      for (i = 0; i < *n_true; i++) {
+        // printf("Inserisco assegnamento in %d\n",i);
+        newhead[i] = insord_abd(assignment,head_true[i]);
+        pos++;
+      }
+    }
+
+    for(i = 0; i < *n_false; i++) {
+      // printf("aggiungo %d false in %d\n",i,pos+i);
+        newhead[pos + i] = head_false[i]; // copio perché non devo inserire
+      }
+
+    // for(i = 0; i < *n_false; i++) {
+      // newhead[*n_true + i] = insord_abd(assignment, head_false[i]);
+    // }
+      // printf("dim: %d\n",dim);
+
+    *n_new_elements = dim;
+
+    return newhead;
+  }
+}
+
 explan_t **insert_abd(assign assignment, explan_t **head, int n_elements) {
   int i;
   explan_t **newhead;
 
-  // printf("insrisco: var - val = %d - %d\n",assignment.var,assignment.val);  
-
-  // printf("insert abd: n_elements: %d\n",n_elements);
-  // printf("insert abd: print head: %s\n",head == NULL ? "NULL": "");
-  // for(i = 0; i < n_elements; i++) {
-  //   printf("--- Explan %d ---\n",i);
-  //   print_abd_explan(head[i]); 
-  // }
-
-  // printf("----\n");
-
-  // if(n_elements == 0) {
-  //   // provengo da un nodo terminale o da un nodo probabilistico
-  //   printf("N elements 0\n");
-  //   // n_elements = 1;
-  // }
-
-  // n_elements++;
-  // qui è l'errore?
   newhead = malloc(sizeof(explan_t*) * (n_elements == 0 ? 1 : n_elements + 1));
   
   if(n_elements == 0) {
@@ -1791,10 +1958,88 @@ explan_t **insert_abd(assign assignment, explan_t **head, int n_elements) {
     }
   }
 
+  return newhead;
+}
+
+explan_t **insert_abd_ordered(assign assignment, explan_t **head, int n_elements) {
+  int i;
+  explan_t **newhead;
+
+  // printf("inserisco: var - val = %d - %d\n",assignment.var,assignment.val);  
+
+  // printf("insert abd: n_elements: %d\n",n_elements);
+  // printf("insert abd: print head: %s\n",head == NULL ? "NULL": "");
+  // for(i = 0; i < n_elements; i++) {
+  //   printf("--- Explan %d ---\n",i);
+  //   print_abd_explan(head[i]); 
+  // }
+
+  // printf("----\n");
+
+  // if(n_elements == 0) {
+  //   // provengo da un nodo terminale o da un nodo probabilistico
+  //   printf("N elements 0\n");
+  //   // n_elements = 1;
+  // }
+
+  // n_elements++;
   
+  // questa si può risparmiare alcune volte
+  newhead = malloc(sizeof(explan_t*) * (n_elements == 0 ? 1 : n_elements + 1));
   
+  if(n_elements == 0) {
+    newhead[0] = malloc(sizeof(explan_t));
+    newhead[0]->a = assignment;
+    newhead[0]->next = NULL;
+  }
+  else {
+    // printf("Insord abd\n");
+    for(i = 0; i < n_elements; i++) {
+      newhead[i] = insord_abd(assignment,head[i]);
+    }
+    // newhead = head;
+  }
 
   return newhead;
+}
+
+explan_t *insord_abd(assign assignment, explan_t *head) {
+  if(head == NULL) {
+    return insert(assignment, head);
+  }
+  else if(assignment.var < head->a.var) {
+    return insert(assignment,head);
+  }
+  else{
+    head->next = insert(assignment,head->next);
+    return head;
+  }
+} 
+
+explan_t *insord_abd_iterative(assign assignment, explan_t *head) {
+  explan_t* prec = NULL, *patt = head, *aux;
+  int found = 0;
+  while(patt != NULL && (found == 0)) {
+    if(assignment.var < patt->a.var) {
+      found = 1;
+    }
+    else {
+      prec = patt;
+      patt = patt->next;
+    }
+  }
+  
+  aux = malloc(sizeof(explan_t));
+  aux->a = assignment;
+  aux->next = patt;
+
+  if(patt == head) {
+    return aux;
+  }
+  else {
+    prec->next = aux;
+    return head;
+  }
 }
 
 explan_t * insert(assign assignment,explan_t * head)
@@ -4043,6 +4288,7 @@ void print_prob_abd_expl_list(const prob_abd_expl_list *pael) {
     printf("--- Explan %d ---\n",i);
     print_abd_explan(pael->mpa[i]); 
   }
+  printf("-----\n");
 }
 
 void print_prob_abd_expl(prob_abd_expl *pae) {
@@ -4144,7 +4390,7 @@ install_t install()
   PL_register_foreign("init",1,init,0);
   PL_register_foreign("end",1,end,0);
   PL_register_foreign("ret_prob",3,ret_prob,0);
-  PL_register_foreign("ret_abd_prob",5,ret_abd_prob,0);
+  PL_register_foreign("ret_abd_prob",4,ret_abd_prob,0);
   PL_register_foreign("ret_map_prob",4,ret_map_prob,0);
   PL_register_foreign("ret_vit_prob",4,ret_vit_prob,0);
   PL_register_foreign("reorder",1,reorder,0);
