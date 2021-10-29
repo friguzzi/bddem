@@ -874,13 +874,12 @@ static foreign_t ret_abd_prob(term_t arg_env, term_t arg_bdd, term_t arg_prob, t
 {
   term_t out,outass,out_assign;
   environment * env;
-  DdNode * node, *node_ic;
+  DdNode * node;
   expltablerow_abd * expltable;
   tablerow * table;
   //abdtablerow * abdtable;
   prob_abd_expl_list delta;
   // double *prob_ics = NULL;
-  double prob_ics = 1.0;
   int ret;
   // double p;
   // explan_t ** mpa;
@@ -912,76 +911,8 @@ static foreign_t ret_abd_prob(term_t arg_env, term_t arg_bdd, term_t arg_prob, t
 
     delta = abd_Prob(node,env,expltable,table,0);
 
-    /*
-    // p=delta.prob;
-    // mpa=delta.mpa;
-    // printf("--- Fine algoritmo ---\n");
-    // print_prob_abd_expl_list(&delta);
-    // exit(-1);
-
-    // qui controllo la prob dell'ic
-    // printf("**************\n");
-    if(delta.prob != 0) {
-      destroy_table(table,env->boolVars);
-      table = NULL;
-      table = init_table(env->boolVars);
-    
-      // prob_ics = malloc(sizeof(double) * delta.n_elements == 0 ? 1 : delta.n_elements);
-
-      if(delta.n_elements == 0) {
-        // prob_ics[0] = Prob(node_ic,env,table);
-        prob_ics = Prob(node_ic,env,table);
-        if (Cudd_IsComplement(node_ic)) {
-          // prob_ics[0] = 1.0 - prob_ics[0];
-          prob_ics = 1.0 - prob_ics;
-        }
-        // printf("Prob ic delta vuoto: %lf\n",prob_ics[0]);
-        // printf("Prob ic delta vuoto: %lf\n",prob_ics);
-      }
-      else {
-        // for(i = 0; i < delta.n_elements; i++) {
-        //   // prob_ics[i] = Prob_given_expl(node_ic,env,table,delta.mpa[i],0);
-        //   prob_ics = Prob_given_expl(node_ic,env,table,delta.mpa[i],0);
-        //   if (Cudd_IsComplement(node_ic)) {
-        //     // prob_ics[i] = 1.0 - prob_ics[i];
-        //     prob_ics = 1.0 - prob_ics;
-        //   }
-        //   printf("Prob ic: %lf\n",prob_ics);
-        //   }
-          prob_ics = Prob_given_expl(node_ic,env,table,delta.mpa[0],0);
-          if (Cudd_IsComplement(node_ic)) {
-            // prob_ics[i] = 1.0 - prob_ics[i];
-            prob_ics = 1.0 - prob_ics;
-          }
-          // printf("Prob ic: %lf\n",prob_ics[i]);
-          // printf("Prob ic: %lf\n",prob_ics);
-        // }
-      }
-    }
-
-    // in teoria non dovrebbe accadere che le prob dei vari IC siano differenti
-    // if(prob_ics[0] != 0) {
-    if(prob_ics != 0) {
-      // if(delta.prob > prob_ics[0]) {
-      if(delta.prob > prob_ics) {
-        // printf("Error in computing probability IC\n");
-        // printf("Prob IC: %lf, Prob query: %lf, ratio > 1",delta.prob,prob_ics[0]);
-        // printf("Prob IC: %lf, Prob query: %lf, ratio > 1",delta.prob,prob_ics);
-        PL_fail;
-      }
-      // delta.prob = delta.prob / prob_ics[0];
-      // printf("delta.prob: %lf\n",delta.prob);
-      delta.prob = delta.prob / prob_ics;
-    }
-    // PL_fail;
-    // if(prob_ics != NULL) {
-      // free(prob_ics);
-    // }
-    */
-
     ret = PL_put_float(out,delta.prob);
     RETURN_IF_FAIL
-    //destroy_table(abdtable,env->n_abd);
 
     out_assign = PL_new_term_ref();
     PL_put_nil(out_assign);
@@ -1580,31 +1511,6 @@ int is_subset(explan_t *e01, explan_t *e02) {
   }
 }
 
-// int is_equal(explan_t *e01, explan_t *e02) {
-//   explan_t *e1, *e2;
-//   e1 = e01;
-//   e2 = e02;
-
-//   if(e1 == NULL) {
-//     return 0;
-//   }
-//   else if(e2 == NULL) {
-//     return 0;
-//   }
-//   else {
-//     while(e1 != NULL && e2 != NULL && (e1->a.var == e2->a.var)) {
-//       e1 = e1->next;
-//       e2 = e2->next;
-//     }
-//     if(e1 == NULL && e2 != NULL) {
-//       return 1;
-//     }
-//     else {
-//       return 0;
-//     }
-//   }
-// }
-
 explan_t **split_explan_v2(assign assignment, explan_t **head_true, explan_t **head_false, int *n_true, int *n_false, int *n_new_elements) {
   explan_t **newhead;
 
@@ -1613,9 +1519,8 @@ explan_t **split_explan_v2(assign assignment, explan_t **head_true, explan_t **h
   int pos = 0;
   int removed = 0;
 
-  // controllo se uno dei due è vuoto: se sì, restituisco una sola
-  // spiegazione vuota
-  // nel caso di true no, perché devo inserire l'elemento 1
+  // check whether one of the two is empty: if so, empty explanation
+  // this does not apply to n_true since i need to insert the element 1
   // if(*n_true == 0) {
     // *n_new_elements = 0;
     // return head_true;
@@ -1625,27 +1530,7 @@ explan_t **split_explan_v2(assign assignment, explan_t **head_true, explan_t **h
     return head_false;
   }
   else {
-    // controllo insiemi dominati in true
-    // se gli insiemi sono uguali, allora non inserisco
-    // e restituisco false
-    // for(i = 0; i < *n_true; i++) {
-    //   for(ii = 0; ii < *n_false; ii++) {
-    //     if(is_equal(head_false[ii],head_true[i])) {
-    //       printf("rimuovo spiegazione %d da true\n",i);
-    //       for(iii = i; iii < *n_true - 1; iii++) {
-    //         head_true[iii] = head_true[iii + 1];
-    //       }
-    //       printf("rimuovo spiegazione %d da false\n",i);
-    //       for(iii = i; iii < *n_false - 1; iii++) {
-    //         head_false[iii] = head_false[iii + 1];
-    //       }
-
-    //       *n_true = *n_true - 1;
-    //       *n_false = *n_false - 1;
-    //     }
-    //   }
-    // }
-
+    // checks dominated sets in true
     for(i = 0; i < *n_true; i++) {
       for(ii = 0; ii < *n_false; ii++) {
         if(is_subset(head_false[ii],head_true[i])) {
@@ -1657,73 +1542,40 @@ explan_t **split_explan_v2(assign assignment, explan_t **head_true, explan_t **h
           }
           // free(head_true[iii]);
           *n_true = *n_true - 1;
-
-          // printf("ora ci sono %d elementi in true\n",*n_true);
-
         }
       }
     }
-      // rimuovo insiemi dominati in false
-    // for(i = 0; i < *n_false; i++) {
-    //   for(ii = 0; ii < *n_true; ii++) {
-    //     if(is_subset(head_true[ii],head_false[i])) {
-    //       // remove head_true[i]
-    //       printf("rimuovo spiegazione %d da false\n",i);
-    //       for(iii = i; iii < *n_true - 1; iii++) {
-    //         head_false[iii] = head_false[iii + 1];
-    //       }
-    //       // free(head_true[iii]);
-    //       *n_false = *n_false - 1;
 
-    //       printf("ora ci sono %d elementi in false\n",*n_false);
-
-    //     }
-    //   }
-    // }
-
-    // come prima, aggiungo in nodo in true ed unisco gli insiemi false e true
+    // add a node in true, as before, and merge the sets true and false
     assignment.val = 1;
     dim = *n_true + *n_false;
     if(*n_true == 0 && removed > 0) {
-      // dim++;
-      // printf("n_true vuoto dopo rimozione\n");
-      // restituisco il false
       *n_new_elements = *n_false;
       return head_false;
     }
     else if(*n_true == 0) {
       dim++;
     }
-    // if(*n_false == 0) {
-    //   dim++;
-    // }
 
     newhead = malloc(sizeof(explan_t*) * (dim + 2)); // perché + 2?
 
-    // se true vuota inserisco
-    // printf("n_true ora: %d\n",*n_true);
     if(*n_true == 0) {
-      // printf("Inserisco assegnamento in vuoto\n");
+      // insert empty assignment
       newhead[0] = insord_abd(assignment,NULL);
       pos++;
     }
     else {
       for (i = 0; i < *n_true; i++) {
-        // printf("Inserisco assegnamento in %d\n",i);
+        // insert empty assignment
         newhead[i] = insord_abd(assignment,head_true[i]);
         pos++;
       }
     }
 
+    // add false
     for(i = 0; i < *n_false; i++) {
-      // printf("aggiungo %d false in %d\n",i,pos+i);
-        newhead[pos + i] = head_false[i]; // copio perché non devo inserire
-      }
-
-    // for(i = 0; i < *n_false; i++) {
-      // newhead[*n_true + i] = insord_abd(assignment, head_false[i]);
-    // }
-      // printf("dim: %d\n",dim);
+      newhead[pos + i] = head_false[i];
+    }
 
     *n_new_elements = dim;
 
@@ -1763,25 +1615,6 @@ explan_t **insert_abd(assign assignment, explan_t **head, int n_elements) {
 explan_t **insert_abd_ordered(assign assignment, explan_t **head, int n_elements) {
   int i;
   explan_t **newhead;
-
-  // printf("inserisco: var - val = %d - %d\n",assignment.var,assignment.val);  
-
-  // printf("insert abd: n_elements: %d\n",n_elements);
-  // printf("insert abd: print head: %s\n",head == NULL ? "NULL": "");
-  // for(i = 0; i < n_elements; i++) {
-  //   printf("--- Explan %d ---\n",i);
-  //   print_abd_explan(head[i]); 
-  // }
-
-  // printf("----\n");
-
-  // if(n_elements == 0) {
-  //   // provengo da un nodo terminale o da un nodo probabilistico
-  //   printf("N elements 0\n");
-  //   // n_elements = 1;
-  // }
-
-  // n_elements++;
   
   // questa si può risparmiare alcune volte
   newhead = malloc(sizeof(explan_t*) * (n_elements == 0 ? 1 : n_elements + 1));
@@ -1792,7 +1625,6 @@ explan_t **insert_abd_ordered(assign assignment, explan_t **head, int n_elements
     newhead[0]->next = NULL;
   }
   else {
-    // printf("Insord abd\n");
     for(i = 0; i < n_elements; i++) {
       newhead[i] = insord_abd(assignment,head[i]);
     }
