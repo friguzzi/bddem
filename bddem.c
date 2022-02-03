@@ -1732,9 +1732,12 @@ static foreign_t add_var(term_t arg1,term_t arg2,term_t arg3,term_t arg4)
   ret=PL_skip_list(probTerm,0,&lenProbs);
   if (ret!=PL_LIST) return FALSE;
 
-  // printf("len prob: %d\n",lenProbs);
-
   v->nVal=lenProbs;
+
+  if(v->nVal == 1) {
+    v->nVal++;
+  }
+
   nRules=env->nRules;
   if (v->nRule>=nRules)
   {
@@ -1747,7 +1750,7 @@ static foreign_t add_var(term_t arg1,term_t arg2,term_t arg3,term_t arg4)
   v->firstBoolVar=env->boolVars;
   env->probs=(double *) realloc(env->probs,(((env->boolVars+v->nVal-1)* sizeof(double))));
   env->bVar2mVar=(int *) realloc(env->bVar2mVar,((env->boolVars+v->nVal-1)* sizeof(int)));
-
+  
   p0=1;
   for (i=0;i<v->nVal-1;i++)
   {
