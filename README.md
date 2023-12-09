@@ -10,6 +10,10 @@ It is used by various SWI-Prolog packs:
  * cplint https://github.com/friguzzi/cplint
  * trill https://github.com/rzese/trill
 
+## Documentation
+
+https://friguzzi.github.io/bddem
+
 Installation
 ------------
 This is an SWI-Prolog pack.
