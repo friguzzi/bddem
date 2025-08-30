@@ -3,7 +3,7 @@ SHELL := /bin/bash
 LIBDIR=lib/$(SWIPL_ARCH)/
 #
 #
-CC=$(SWIPL_CC)
+CC=gcc
 INC1=cudd-3.0.0/cudd
 CURRDIR=$(shell pwd)
 #INC2=$(shell while read one two three; \
@@ -14,28 +14,26 @@ CURRDIR=$(shell pwd)
 
 INC2=${SWIPL_HOME_DIR}/include
 #INC2=`echo /usr/lib/swi*`/include/
-INCDIRS= -I$(INC1)
+INCDIRS= -I$(INC1) -I$(SWIPL_INCLUDE_DIRS)
 CFLAGSBDDEM= $(CFLAGS) -fPIC -DBP_FREE -O3 -fomit-frame-pointer -Wall -g -O2 ${INCDIRS}
-
 #
 #
 # You shouldn't need to change what follows.
 #
-LDFLAGS= $(LDSOFLAGS) -shared -Lcudd-3.0.0/cudd/.libs/ -lcudd
+LDFLAGS= $(LDSOFLAGS) -shared -Lcudd-3.0.0/cudd/.libs/ -lcudd -L$(SWIPL_LIBRARIES_DIR) $(SWIPL_LIB)
 #cudd-3.0.0/cudd/.libs/libcudd-3.0.0.so.0.0.0
-
-#
-
+SOEXT=$(SWIPL_MODULE_EXT)
 
 all:  bddem.$(SOEXT)
 
 bddem.$(SOEXT): bddem.o
+	@echo $(SOEXT)
 	#swipl-ld -export-dynamic bddem.o  $(LDFLAGS) -o bddem.$(SOEXT)
 	if test $(SWIPL_ARCH) == x64-win64 -o $(SWIPL_ARCH) == i386-win32 ; then \
-  $(CC) bddem.o -static-libgcc -static-libstdc++  $(LDFLAGS) -lswipl -o bddem.$(SOEXT) ;\
+  $(CC) bddem.o -static-libgcc -static-libstdc++  $(LDFLAGS) -o bddem.$(SOEXT) ;\
    else  \
      if [[ $(SWIPL_ARCH) ==  *darwin* ]] ;  then \
-  $(CC) bddem.o  $(LDFLAGS) -lswipl -o bddem.$(SOEXT) ;\
+  $(CC) bddem.o  $(LDFLAGS) -o bddem.$(SOEXT) ;\
   else  \
   $(CC) -export-dynamic bddem.o  $(LDFLAGS) -o bddem.$(SOEXT) ;\
   fi \
@@ -59,7 +57,8 @@ check:
 
 install: all
 	mkdir -p $(LIBDIR)
+	@echo $(SOEXT)
 	cp bddem.$(SOEXT) $(LIBDIR)
 
 installcheck:
-	swipl -g test -t halt prolog/bddem_test.pl
+	swipl -g test_bddem -t halt prolog/bddem_test.pl
