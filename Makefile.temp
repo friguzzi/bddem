@@ -1,27 +1,12 @@
 SHELL := /bin/bash
-#LIBDIR=lib/$(SWIARCH)/
 LIBDIR=lib/$(SWIPL_ARCH)/
-#
-#
 CC=gcc
 INC1=cudd-3.0.0/cudd
 CURRDIR=$(shell pwd)
-#INC2=$(shell while read one two three; \
-#do TEMP=$two; \
-#done <<< `whereis swipl`; \
-#readlink -f $TEMP; \
-)/include #da completare
-
 INC2=${SWIPL_HOME_DIR}/include
-#INC2=`echo /usr/lib/swi*`/include/
 INCDIRS= -I$(INC1) -I$(SWIPL_INCLUDE_DIRS)
 CFLAGSBDDEM= $(CFLAGS) -fPIC -DBP_FREE -O3 -fomit-frame-pointer -Wall -g -O2 ${INCDIRS}
-#
-#
-# You shouldn't need to change what follows.
-#
 LDFLAGS= $(LDSOFLAGS) -shared -Lcudd-3.0.0/cudd/.libs/ -lcudd -L$(SWIPL_LIBRARIES_DIR) $(SWIPL_LIB)
-#cudd-3.0.0/cudd/.libs/libcudd-3.0.0.so.0.0.0
 SOEXT=$(SWIPL_MODULE_EXT)
 
 all:  bddem.$(SOEXT)
@@ -38,7 +23,6 @@ bddem.$(SOEXT): bddem.o
   $(CC) -export-dynamic bddem.o  $(LDFLAGS) -o bddem.$(SOEXT) ;\
   fi \
   fi
-#-Wl,-R,$(YAPLIBDIR) -Wl,-R,$(LIBDIR)
 
 bddem.o : bddem.c
 	cd cudd-3.0.0 &&  $(MAKE) && cd ..
