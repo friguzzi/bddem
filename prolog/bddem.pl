@@ -18,12 +18,12 @@
   symmetric_dirichlet_sample/3,
   discrete_sample/2,
   initial_values/2,
-  add_decision_var/3,
+  add_decision_var/4,
   probability_dd/3,
   add_prod/4,
   add_sum/4,
   ret_strategy/4,
-  % compute_best_strategy/5,
+  compute_optimal_strategy_sp/5,
   debug_cudd_var/2
   ]).
 /** <module> bddem
