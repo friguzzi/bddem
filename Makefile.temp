@@ -1,22 +1,28 @@
 SHELL := /bin/sh
 
 SWIPL ?= swipl
-SWIPL_LD ?= swipl-ld
+SWIPL_BIN := $(shell command -v $(SWIPL))
+SWIPL_BINDIR := $(dir $(SWIPL_BIN))
+SWIPL_LD := $(SWIPL_BINDIR)swipl-ld
 CC ?= cc
+INSTALL ?= install
 
 PLBASE := $(shell $(SWIPL) --dump-runtime-variables | sed -n 's/^PLBASE="\(.*\)";/\1/p')
 PLARCH := $(shell $(SWIPL) --dump-runtime-variables | sed -n 's/^PLARCH="\(.*\)";/\1/p')
 SOEXT := $(shell $(SWIPL) --dump-runtime-variables | sed -n 's/^PLSOEXT="\(.*\)";/\1/p')
 
-LIBDIR = lib/$(PLARCH)/
+CUDD_DIR := cudd-3.0.0
+LIBDIR := lib/$(PLARCH)
 
-INC1 = cudd-3.0.0/cudd
-INC2 = $(PLBASE)/include
-INC3 = cudd-3.0.0/st
-INCDIRS = -I$(INC1) -I$(INC2) -I$(INC3)
+INC1 := $(CUDD_DIR)/cudd
+INC2 := $(PLBASE)/include
+INC3 := $(CUDD_DIR)/st
+INCDIRS := -I$(INC1) -I$(INC2) -I$(INC3)
 
-CFLAGSBDDEM = $(CFLAGS) -fPIC -DBP_FREE -O3 -fomit-frame-pointer -Wall -g -O2 $(INCDIRS)
-LDFLAGS = -shared -Lcudd-3.0.0/cudd/.libs/ -lcudd
+CFLAGSBDDEM := $(CFLAGS) -fPIC -DBP_FREE -O3 -fomit-frame-pointer -Wall -g -O2 $(INCDIRS)
+LDFLAGS := -shared -L$(CUDD_DIR)/cudd/.libs/ -lcudd
+
+.PHONY: all clean distclean check install installcheck
 
 all: bddem.$(SOEXT)
 
@@ -24,22 +30,21 @@ bddem.$(SOEXT): bddem.o
 	$(SWIPL_LD) bddem.o $(LDFLAGS) -o $@
 
 bddem.o: bddem.c
-	cd cudd-3.0.0 && $(MAKE) && cd ..
+	$(MAKE) -C $(CUDD_DIR)
 	$(CC) -c $(CFLAGSBDDEM) bddem.c -o $@
-
-distclean: clean
-	rm -f Makefile
-	cd cudd-3.0.0 && $(MAKE) distclean && cd ..
 
 clean:
 	rm -f *.o bddem.$(SOEXT)
+
+distclean: clean
+	$(MAKE) -C $(CUDD_DIR) distclean
 
 check:
 	@echo "no check"
 
 install: all
-	mkdir -p $(LIBDIR)
-	cp bddem.$(SOEXT) $(LIBDIR)
+	$(INSTALL) -d $(LIBDIR)
+	$(INSTALL) bddem.$(SOEXT) $(LIBDIR)/bddem.$(SOEXT)
 
 installcheck:
 	$(SWIPL) -g test -t halt prolog/bddem_test.pl
