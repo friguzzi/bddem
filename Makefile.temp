@@ -1,48 +1,50 @@
-SHELL := /bin/bash
-LIBDIR=lib/$(SWIPL_ARCH)/
-CC=gcc
-INC1=cudd-3.0.0/cudd
-CURRDIR=$(shell pwd)
-INC2=${SWIPL_HOME_DIR}/include
-INCDIRS= -I$(INC1) -I$(SWIPL_INCLUDE_DIRS)
-CFLAGSBDDEM= $(CFLAGS) -fPIC -DBP_FREE -O3 -fomit-frame-pointer -Wall -g -O2 ${INCDIRS}
-LDFLAGS= $(LDSOFLAGS) -shared -Lcudd-3.0.0/cudd/.libs/ -lcudd -L$(SWIPL_LIBRARIES_DIR) $(SWIPL_LIB)
-SOEXT=$(SWIPL_MODULE_EXT)
+SHELL := /bin/sh
 
-all:  bddem.$(SOEXT)
+SWIPL ?= swipl
+SWIPL_BIN := $(shell command -v $(SWIPL))
+SWIPL_BINDIR := $(dir $(SWIPL_BIN))
+SWIPL_LD := $(SWIPL_BINDIR)swipl-ld
+CC ?= cc
+INSTALL ?= install
+
+PLBASE := $(shell $(SWIPL) --dump-runtime-variables | sed -n 's/^PLBASE="\(.*\)";/\1/p')
+PLARCH := $(shell $(SWIPL) --dump-runtime-variables | sed -n 's/^PLARCH="\(.*\)";/\1/p')
+SOEXT := $(shell $(SWIPL) --dump-runtime-variables | sed -n 's/^PLSOEXT="\(.*\)";/\1/p')
+
+CUDD_DIR := cudd-3.0.0
+LIBDIR := lib/$(PLARCH)
+
+INC1 := $(CUDD_DIR)/cudd
+INC2 := $(PLBASE)/include
+INC3 := $(CUDD_DIR)/st
+INCDIRS := -I$(INC1) -I$(INC2) -I$(INC3)
+
+CFLAGSBDDEM := $(CFLAGS) -fPIC -DBP_FREE -O3 -fomit-frame-pointer -Wall -g -O2 $(INCDIRS)
+LDFLAGS := -shared -L$(CUDD_DIR)/cudd/.libs/ -lcudd
+
+.PHONY: all clean distclean check install installcheck
+
+all: bddem.$(SOEXT)
 
 bddem.$(SOEXT): bddem.o
-	@echo $(SOEXT)
-	#swipl-ld -export-dynamic bddem.o  $(LDFLAGS) -o bddem.$(SOEXT)
-	if test $(SWIPL_ARCH) == x64-win64 -o $(SWIPL_ARCH) == i386-win32 ; then \
-  $(CC) bddem.o -static-libgcc -static-libstdc++  $(LDFLAGS) -o bddem.$(SOEXT) ;\
-   else  \
-     if [[ $(SWIPL_ARCH) ==  *darwin* ]] ;  then \
-  $(CC) bddem.o  $(LDFLAGS) -o bddem.$(SOEXT) ;\
-  else  \
-  $(CC) -export-dynamic bddem.o  $(LDFLAGS) -o bddem.$(SOEXT) ;\
-  fi \
-  fi
+	$(SWIPL_LD) bddem.o $(LDFLAGS) -o $@
 
-bddem.o : bddem.c
-	cd cudd-3.0.0 &&  $(MAKE) && cd ..
-	$(CC) -c $(CFLAGSBDDEM) bddem.c -o bddem.o
-
-
-distclean: clean
-	rm Makefile
-	cd cudd-3.0.0 && $(MAKE) distclean && cd ..
+bddem.o: bddem.c
+	$(MAKE) -C $(CUDD_DIR)
+	$(CC) -c $(CFLAGSBDDEM) bddem.c -o $@
 
 clean:
 	rm -f *.o bddem.$(SOEXT)
+
+distclean: clean
+	$(MAKE) -C $(CUDD_DIR) distclean
 
 check:
 	@echo "no check"
 
 install: all
-	mkdir -p $(LIBDIR)
-	@echo $(SOEXT)
-	cp bddem.$(SOEXT) $(LIBDIR)
+	$(INSTALL) -d $(LIBDIR)
+	$(INSTALL) bddem.$(SOEXT) $(LIBDIR)/bddem.$(SOEXT)
 
 installcheck:
-	swipl -g test_bddem -t halt prolog/bddem_test.pl
+	$(SWIPL) -g test -t halt prolog/bddem_test.pl

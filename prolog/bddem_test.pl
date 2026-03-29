@@ -22,8 +22,8 @@ v2_0(Env,R,Val,BDD):-
 prepare_vars(Env,Rainy,Windy,Umbrella,Raincoat):-
   add_var(Env,[0.3,0.7],0,VRainy),
   add_var(Env,[0.5,0.5],1,VWindy),
-  add_decision_var(Env,3,VRaincoat),
-  add_decision_var(Env,2,VUmbrella),
+  add_decision_var(Env,3,2,VRaincoat),
+  add_decision_var(Env,2,2,VUmbrella),
   equality(Env,VRainy,0,Rainy),
   equality(Env,VWindy,0,Windy),
   equality(Env,VUmbrella,0,Umbrella),
@@ -304,10 +304,21 @@ test(probabilitdd):-
   add_sum(Env,AO2,ADDDU,AO),
 
   ret_strategy(Env,AO,S,C), % <- computes the best strategy
-  S = [2],
-  C = 43.0,
-  writeln(S),
-  writeln(C),
+  msort(S,Sorted),
+  Sorted = [2-1,3-0],
+  C =:= 43.0,
+  end(Env).
+
+test(probability_dd_sp):-
+  init(Env),
+  prepare_vars(Env,Rainy,Windy,Umbrella,Raincoat),
+  dry(Env,BDDD,Rainy,Windy,Umbrella,Raincoat),
+  broken_umbrella(Env,BDDBU,Rainy,Windy,Umbrella),
+
+  compute_optimal_strategy_sp(Env,[BDDBU,Raincoat,Umbrella,BDDD],[-40,-20,-2,60],S,C),
+  msort(S,Sorted),
+  Sorted = [2-1,3-0],
+  C =:= 43.0,
   end(Env).
 
 :- end_tests(dtprob).
