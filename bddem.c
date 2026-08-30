@@ -2962,6 +2962,390 @@ void write_dot(environment * env, DdNode * bdd, FILE * file)
   free(inames);
 }
 
+
+void dump_json_step(DdNode *n, st_table *visited, FILE *fp)
+{
+  // Get the regular pointer of n (ignore complement tag)
+  DdNode *reg = Cudd_Regular(n);
+  // If reg(n) has been visited, skip
+  if (st_is_member(visited, (char *)reg)) return;
+  // Mark as visited
+  st_insert(visited, (char *)reg, NULL);
+
+  // Handle Terminal Node (1-Node)
+  if (Cudd_IsConstant(reg)) {
+      fprintf(fp, "\"%p\": {\"val\": %g},\n", (void *)reg, Cudd_V(reg));
+      return;
+  }
+
+  // Handle Internal Nodes
+  DdNode *low = Cudd_E(reg);
+  DdNode *high = Cudd_T(reg);
+  int index = Cudd_NodeReadIndex(reg); // get boolean variable index
+  fprintf(fp, "\"%p\": {\"var\": %d, \"low\": \"%p\", \"high\": \"%p\"},\n",
+          (void *)reg, index, (void *)low, (void *)high);
+
+  dump_json_step(low, visited, fp);
+  dump_json_step(high, visited, fp);
+}
+
+typedef struct {
+  int mvar; // multivalued variable index
+  char **heads; // grounded decision heads for this decision variable
+  size_t head_count;
+} dec_name_t;
+
+static void json_write_string(FILE *fp, const char *s) { // helper that writes a safe JSON string to the output file.
+  const unsigned char *p = (const unsigned char *)s;
+  fputc('"', fp);
+  while (*p) {
+    switch (*p) {
+      case '\\': fputs("\\\\", fp); break;
+      case '\"': fputs("\\\"", fp); break;
+      case '\n': fputs("\\n", fp); break;
+      case '\r': fputs("\\r", fp); break;
+      case '\t': fputs("\\t", fp); break;
+      default:
+        if (*p < 0x20) {
+          fprintf(fp, "\\u%04x", *p);
+        } else {
+          fputc(*p, fp);
+        }
+        break;
+    }
+    p++;
+  }
+  fputc('"', fp);
+}
+
+static void free_dec_name_list(dec_name_t *list, size_t count) {
+  if (!list) return;
+  for (size_t i = 0; i < count; i++) {
+    if (list[i].heads) {
+      for (size_t j = 0; j < list[i].head_count; j++) free(list[i].heads[j]);
+      free(list[i].heads);
+    }
+  }
+  free(list);
+}
+
+static int dec_name_cmp(const void *a, const void *b) {
+  const dec_name_t *da = (const dec_name_t *)a;
+  const dec_name_t *db = (const dec_name_t *)b;
+  if (da->mvar < db->mvar) return -1;
+  if (da->mvar > db->mvar) return 1;
+  return 0;
+}
+
+static int parse_decision_heads(term_t term, char ***out_heads, size_t *out_count) {
+  term_t list = PL_copy_term_ref(term);
+  term_t head = PL_new_term_ref();
+  term_t tail = PL_new_term_ref();
+  char **heads = NULL;
+  size_t count = 0, cap = 0;
+
+  while (PL_get_list(list, head, tail)) {
+    char *name_chars = NULL;
+    if (!PL_get_chars(head, &name_chars, CVT_WRITE | BUF_DISCARDABLE)) {
+      for (size_t i = 0; i < count; i++) free(heads[i]);
+      free(heads);
+      return FALSE;
+    }
+    if (count == cap) {
+      cap = cap ? cap * 2 : 4;
+      char **tmp = (char **)realloc(heads, cap * sizeof(char *));
+      if (!tmp) {
+        for (size_t i = 0; i < count; i++) free(heads[i]);
+        free(heads);
+        return FALSE;
+      }
+      heads = tmp;
+    }
+    heads[count] = strdup(name_chars);
+    if (!heads[count]) {
+      for (size_t i = 0; i < count; i++) free(heads[i]);
+      free(heads);
+      return FALSE;
+    }
+    count++;
+    list = tail;
+  }
+  if (!PL_get_nil(list)) {
+    for (size_t i = 0; i < count; i++) free(heads[i]);
+    free(heads);
+    return FALSE;
+  }
+
+  if (count == 0) {
+    char *name_chars = NULL;
+    if (!PL_get_chars(term, &name_chars, CVT_WRITE | BUF_DISCARDABLE)) {
+      free(heads);
+      return FALSE;
+    }
+    heads = (char **)malloc(sizeof(char *));
+    if (!heads) return FALSE;
+    heads[0] = strdup(name_chars);
+    if (!heads[0]) {
+      free(heads);
+      return FALSE;
+    }
+    count = 1;
+  }
+
+  *out_heads = heads;
+  *out_count = count;
+  return TRUE;
+}
+
+#define BDD_JSON_FORMAT "bdd_json_v1"
+
+void write_json(environment *env, DdNode **bdds, double *utils, size_t bdd_count,
+                    dec_name_t *dec_names, size_t dec_count, FILE *file)
+{
+  char **inames;
+  int i, b, index, nv;
+  variable v;
+  char numberVar[11], numberBit[11];
+  inames = (char **) malloc(sizeof(char *)*(env->boolVars));
+  index = 0;
+  for (i = 0; i < env->nVars; i++) {
+    v = env->vars[i];
+    if (v.query)
+      nv = v.nVal;
+    else
+      nv = v.nVal - 1;
+    for (b = 0; b < nv; b++) {
+      inames[b+index] = (char *) malloc(sizeof(char)*20);
+      strcpy(inames[b+index], "X");
+      sprintf(numberVar, "%d", i);
+      strcat(inames[b+index], numberVar);
+      strcat(inames[b+index], "_");
+      sprintf(numberBit, "%d", b);
+      strcat(inames[b+index], numberBit);
+    }
+    index = index + nv;
+  }
+
+  st_table *visited = st_init_table(st_ptrcmp, st_ptrhash);
+  if (dec_count > 1) {
+    qsort(dec_names, dec_count, sizeof(dec_name_t), dec_name_cmp);
+  }
+  fprintf(file, "{\n\"format\": \"%s\",\n\"bdds\": [\n", BDD_JSON_FORMAT);
+  for (size_t bi = 0; bi < bdd_count; bi++) {
+    fprintf(file, "  {\"utility\": %.17g, \"root\": \"%p\"}%s\n",
+            utils[bi], (void *)bdds[bi], (bi + 1 < bdd_count) ? "," : "");
+  }
+  fprintf(file, "],\n\"decision_options\": {");
+  int first_opt = 1;
+  for (size_t di = 0; di < dec_count; di++) {
+    int mvar = dec_names[di].mvar;
+    int bool_index = env->vars[mvar].firstBoolVar;
+    if (!first_opt) fprintf(file, ", ");
+    fprintf(file, "\"%d\": {\"first_bool\": %d, \"heads\": [", mvar, bool_index);
+    for (size_t hj = 0; hj < dec_names[di].head_count; hj++) {
+      if (hj > 0) fprintf(file, ", ");
+      json_write_string(file, dec_names[di].heads[hj]);
+    }
+    fprintf(file, "]}");
+    first_opt = 0;
+  }
+  fprintf(file, "},\n\"vars\": {");
+  for (int vi = 0; vi < env->boolVars; vi++) {
+    int mvar = env->bVar2mVar[vi];
+    int is_decision = env->vars[mvar].decision;
+    if (vi > 0) fprintf(file, ", ");
+    fprintf(file, "\"%d\": {\"label\": ", vi);
+    json_write_string(file, inames[vi]);
+    if (is_decision) {
+      fprintf(file, ", \"kind\": \"decision\"}");
+    } else {
+      fprintf(file, ", \"kind\": \"prob\", \"prob\": %.17g}", env->probs[vi]);
+    }
+  }
+  fprintf(file, "},\n\"nodes\": {\n");
+  for (size_t bi = 0; bi < bdd_count; bi++) {
+    dump_json_step(bdds[bi], visited, file);
+  }
+  fprintf(file, "\"_end\": null\n}\n}");
+  st_free_table(visited);
+
+  index = 0;
+  for (i = 0; i < env->nVars; i++) {
+    v = env->vars[i];
+    if (v.query)
+      nv = v.nVal;
+    else
+      nv = v.nVal - 1;
+    for (b = 0; b < nv; b++) {
+      free(inames[b+index]);
+    }
+    index = index + nv;
+  }
+  free(inames);
+}
+
+foreign_t create_json_util(term_t arg1, term_t arg2, term_t arg3, term_t arg4, term_t arg5)
+{
+  environment *env;
+  term_t list, head, tail;
+  DdNode **bdds = NULL;
+  double *utils = NULL;
+  dec_name_t *dec_names = NULL;
+  size_t bdd_count = 0, util_count = 0, dec_count = 0;
+  size_t bdd_cap = 0, util_cap = 0, dec_cap = 0;
+  char *filename;
+  FILE *file;
+  int ret;
+
+  ret = PL_get_pointer(arg1, (void **)&env);
+  RETURN_IF_FAIL
+
+  // Parse BDD list
+  list = PL_copy_term_ref(arg2);
+  head = PL_new_term_ref();
+  tail = PL_new_term_ref();
+  while (PL_get_list(list, head, tail)) {
+    void *ptr = NULL;
+    if (!PL_get_pointer(head, &ptr)) {
+      free(bdds);
+      return FALSE;
+    }
+    if (bdd_count == bdd_cap) {
+      bdd_cap = bdd_cap ? bdd_cap * 2 : 8;
+      bdds = (DdNode **)realloc(bdds, bdd_cap * sizeof(DdNode *));
+      if (!bdds) return FALSE;
+    }
+    bdds[bdd_count++] = (DdNode *)ptr;
+    list = tail;
+  }
+  if (!PL_get_nil(list)) { // ProLog list should end with []
+    free(bdds);
+    return FALSE;
+  }
+
+  // Parse utility list
+  list = PL_copy_term_ref(arg3);
+  head = PL_new_term_ref();
+  tail = PL_new_term_ref();
+  while (PL_get_list(list, head, tail)) {
+    double u = 0.0;
+    if (!PL_get_float(head, &u)) {
+      free(bdds);
+      free(utils);
+      return FALSE;
+    }
+    if (util_count == util_cap) {
+      util_cap = util_cap ? util_cap * 2 : 8;
+      utils = (double *)realloc(utils, util_cap * sizeof(double));
+      if (!utils) {
+        free(bdds);
+        return FALSE;
+      }
+    }
+    utils[util_count++] = u;
+    list = tail;
+  }
+  if (!PL_get_nil(list)) {
+    free(bdds);
+    free(utils);
+    return FALSE;
+  }
+
+  if (bdd_count != util_count) { // number of BDDs should match number of utilities
+    free(bdds);
+    free(utils);
+    return FALSE;
+  }
+
+  // Parse decision list: [MVarIndex, HeadListOrHead]
+  list = PL_copy_term_ref(arg4);
+  head = PL_new_term_ref();
+  tail = PL_new_term_ref();
+  while (PL_get_list(list, head, tail)) {
+    term_t h1 = PL_new_term_ref();
+    term_t h2 = PL_new_term_ref();
+    term_t rest = PL_new_term_ref();
+    int mvar = -1;
+    char **head_names = NULL;
+    size_t head_count = 0;
+
+    if (!PL_get_list(head, h1, rest)) {
+      free(bdds);
+      free(utils);
+      free_dec_name_list(dec_names, dec_count);
+      return FALSE;
+    }
+    if (!PL_get_list(rest, h2, rest) || !PL_get_nil(rest)) {
+      free(bdds);
+      free(utils);
+      free_dec_name_list(dec_names, dec_count);
+      return FALSE;
+    }
+    if (!PL_get_integer(h1, &mvar)) {
+      free(bdds);
+      free(utils);
+      free_dec_name_list(dec_names, dec_count);
+      return FALSE;
+    }
+    if (!parse_decision_heads(h2, &head_names, &head_count)) {
+      free(bdds);
+      free(utils);
+      free_dec_name_list(dec_names, dec_count);
+      return FALSE;
+    }
+    if (dec_count == dec_cap) {
+      dec_cap = dec_cap ? dec_cap * 2 : 8;
+      dec_names = (dec_name_t *)realloc(dec_names, dec_cap * sizeof(dec_name_t));
+      if (!dec_names) {
+        free(bdds);
+        free(utils);
+        if (head_names) {
+          for (size_t hi = 0; hi < head_count; hi++) free(head_names[hi]);
+          free(head_names);
+        }
+        return FALSE;
+      }
+    }
+    dec_names[dec_count].mvar = mvar;
+    dec_names[dec_count].heads = head_names;
+    dec_names[dec_count].head_count = head_count;
+    if (!dec_names[dec_count].heads || dec_names[dec_count].head_count == 0) {
+      free(bdds);
+      free(utils);
+      free_dec_name_list(dec_names, dec_count);
+      return FALSE;
+    }
+    dec_count++;
+    list = tail;
+  }
+  if (!PL_get_nil(list)) {
+    free(bdds);
+    free(utils);
+    free_dec_name_list(dec_names, dec_count);
+    return FALSE;
+  }
+
+  ret = PL_get_file_name(arg5, &filename, 0);
+  RETURN_IF_FAIL
+
+  file = fopen(filename, "w");
+  if (file == NULL) {
+    perror("write_json: could not open file");
+    free(bdds);
+    free(utils);
+    free_dec_name_list(dec_names, dec_count);
+    return FALSE;
+  }
+
+  write_json(env, bdds, utils, bdd_count, dec_names, dec_count, file);
+  fclose(file);
+  free(bdds);
+  free(utils);
+  free_dec_name_list(dec_names, dec_count);
+  return TRUE;
+}
+
+
 /*
 static int rec_deref(void)
 {
@@ -3987,6 +4371,7 @@ install_t install()
   PL_register_foreign("bdd_not",3,bdd_not,0);
   PL_register_foreign("create_dot",3,create_dot,0);
   PL_register_foreign("create_dot_string",3,create_dot_string,0);
+  PL_register_foreign("create_json_util", 5, create_json_util, 0);
   PL_register_foreign("init",1,init,0);
   PL_register_foreign("end",1,end,0);
   PL_register_foreign("ret_prob",3,ret_prob,0);

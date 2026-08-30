@@ -9,7 +9,7 @@
   ret_probc/3,equalityc/4,
   or_list/3,
   or_listc/3,
-  make_query_var/3,create_dot/3,create_dot_string/3,
+  make_query_var/3,create_dot/3,create_dot_string/3,create_json_util/5,
   em/9,rand_seed/1,
   gamma_sample/3,
   gauss_sample/3,
