@@ -30,7 +30,7 @@ bddem.$(SOEXT): bddem.o
 	$(SWIPL_LD) bddem.o $(LDFLAGS) -o $@
 
 bddem.o: bddem.c
-	$(MAKE) -C $(CUDD_DIR)
+	$(MAKE) -C $(CUDD_DIR) cudd/libcudd.la
 	$(CC) -c $(CFLAGSBDDEM) bddem.c -o $@
 
 clean:
